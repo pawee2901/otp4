@@ -84,6 +84,8 @@ INSERT IGNORE INTO settings (id, shop_name, logo_path, admin_username, admin_pas
 VALUES (1, 'Monali Premium', '/static/monali_logo.jpg', 'admin', 'admin1234');
 
 INSERT IGNORE INTO apps (id, name, code, logo_path, keywords, sort_order, active) VALUES
-('app_netflix', 'Netflix', 'NF', '', 'netflix', 0, 1),
-('app_disney',  'Disney+', 'DN', '/static/logo_disney_1780413683.jpg', 'disney', 1, 1),
-('app_trueid',  'TrueID',  'TM', '/static/logo_trueid_1780413707.jpg', 'true', 2, 1);
+('app_prime',   'Prime Video', 'PR',  '/static/app_tile_prime.png',   'prime',   0, 1),
+('app_netflix', 'Netflix',     'NF',  '/static/app_tile_netflix.png', 'netflix', 1, 1),
+('app_disney',  'Disney+',     'DN',  '/static/app_tile_disney.png',  'disney',  2, 1),
+('app_chatgpt', 'ChatGPT',     'GPT', '/static/app_tile_chatgpt.png', 'gpt',     3, 1),
+('app_trueid',  'TrueID',      'TM',  '/static/app_tile_trueid.png',  'true',    4, 1);

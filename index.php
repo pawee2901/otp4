@@ -160,7 +160,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
         <div id="appSelectionScreen" class="glass rounded-[2rem] p-5 md:p-7 space-y-5 transition-all duration-500">
             <h2 class="text-center font-cute text-lg md:text-2xl font-bold text-candy-700">เลือกแอปที่ต้องการรับรหัสยืนยัน</h2>
 
-            <div class="grid grid-cols-2 gap-3 md:gap-4">
+            <div class="flex flex-wrap justify-center gap-3 md:gap-5">
                 <?php
                 $apps_list = isset($config['apps']) && is_array($config['apps']) ? $config['apps'] : [];
                 $apps_list = array_values(array_filter($apps_list, function ($a) { return !isset($a['active']) || $a['active']; }));
@@ -170,24 +170,19 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
                         ['name' => 'TrueID', 'logo_path' => $config['trueid_logo_path'] ?? '']
                     ];
                 }
-                $pastels = [['#fff7fb', '#fbe1ee']];
                 foreach ($apps_list as $i => $app_item):
                     $app_name = htmlspecialchars($app_item['name']);
                     $app_js   = htmlspecialchars(json_encode($app_item['name'], JSON_UNESCAPED_UNICODE), ENT_QUOTES);
-                    [$bg_col, $border_col] = $pastels[$i % count($pastels)];
                     $logo = htmlspecialchars($app_item['logo_path'] ?? '');
                 ?>
-                <button type="button" onclick="selectApp(<?php echo $app_js; ?>)"
-                     class="app-btn rounded-[1.6rem] p-4 md:p-5 flex flex-col items-center justify-center gap-2.5 text-center border-2"
-                     style="background-color: <?php echo $bg_col; ?>; border-color: <?php echo $border_col; ?>;">
-                    <div class="app-logo w-14 h-14 bg-white rounded-2xl shadow-sm flex items-center justify-center overflow-hidden flex-shrink-0 p-1.5">
-                        <?php if (!empty($logo)): ?>
-                        <img src="<?php echo $logo; ?>" alt="<?php echo $app_name; ?> logo" class="w-full h-full object-contain">
-                        <?php else: ?>
-                        <span class="text-xs font-bold text-candy-600 uppercase select-none"><?php echo htmlspecialchars(mb_substr($app_item['name'], 0, 6)); ?></span>
-                        <?php endif; ?>
-                    </div>
-                    <span class="text-sm md:text-base font-semibold text-[#6b3a5a]"><?php echo $app_name; ?></span>
+                <!-- ปุ่มแอปเป็นรูปเต็มช่อง ไม่มีกรอบ ไม่มีชื่อ (รูปตั้งในหน้าแอดมิน > แอปพลิเคชัน) — ถ้ายังไม่มีรูปจะโชว์ชื่อแอปแทน -->
+                <button type="button" onclick="selectApp(<?php echo $app_js; ?>)" aria-label="<?php echo $app_name; ?>" title="<?php echo $app_name; ?>"
+                        class="app-btn w-[30%] max-w-[150px] aspect-square rounded-[1.6rem] overflow-hidden flex items-center justify-center <?php echo empty($logo) ? 'bg-candy-50' : ''; ?>">
+                    <?php if (!empty($logo)): ?>
+                    <img src="<?php echo $logo; ?>" alt="<?php echo $app_name; ?>" class="w-full h-full object-contain">
+                    <?php else: ?>
+                    <span class="text-sm md:text-base font-semibold text-candy-600 px-2 text-center"><?php echo $app_name; ?></span>
+                    <?php endif; ?>
                 </button>
                 <?php endforeach; ?>
             </div>

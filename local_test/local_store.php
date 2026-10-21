@@ -18,10 +18,11 @@ function local_seed_config() {
         'api_key_1'        => '',
         'api_key_2'        => '',
         'apps' => [
-            ['id' => 'app_netflix', 'name' => 'Netflix', 'code' => 'NF',  'logo_path' => '', 'keywords' => 'netflix', 'bg_color' => '', 'border_color' => '', 'active' => true],
-            ['id' => 'app_disney',  'name' => 'Disney+', 'code' => 'DN',  'logo_path' => '', 'keywords' => 'disney',  'bg_color' => '', 'border_color' => '', 'active' => true],
-            ['id' => 'app_trueid',  'name' => 'TrueID',  'code' => 'TM',  'logo_path' => '', 'keywords' => 'true',    'bg_color' => '', 'border_color' => '', 'active' => true],
-            ['id' => 'app_chatgpt', 'name' => 'ChatGPT', 'code' => 'GPT', 'logo_path' => '', 'keywords' => 'gpt',     'bg_color' => '', 'border_color' => '', 'active' => true],
+            ['id' => 'app_prime',   'name' => 'Prime Video', 'code' => 'PR',  'logo_path' => '/static/app_tile_prime.png',   'keywords' => 'prime',   'bg_color' => '', 'border_color' => '', 'active' => true],
+            ['id' => 'app_netflix', 'name' => 'Netflix',     'code' => 'NF',  'logo_path' => '/static/app_tile_netflix.png', 'keywords' => 'netflix', 'bg_color' => '', 'border_color' => '', 'active' => true],
+            ['id' => 'app_disney',  'name' => 'Disney+',     'code' => 'DN',  'logo_path' => '/static/app_tile_disney.png',  'keywords' => 'disney',  'bg_color' => '', 'border_color' => '', 'active' => true],
+            ['id' => 'app_chatgpt', 'name' => 'ChatGPT',     'code' => 'GPT', 'logo_path' => '/static/app_tile_chatgpt.png', 'keywords' => 'gpt',     'bg_color' => '', 'border_color' => '', 'active' => true],
+            ['id' => 'app_trueid',  'name' => 'TrueID',      'code' => 'TM',  'logo_path' => '/static/app_tile_trueid.png',  'keywords' => 'true',    'bg_color' => '', 'border_color' => '', 'active' => true],
         ],
         'imap_emails' => [
             ['id' => 'demo_1', 'email' => 'netflix@demo.local', 'provider' => 'gmail', 'host' => 'imap.gmail.com', 'port' => 993, 'password' => '', 'app_id' => 'app_netflix', 'access_pin' => '1234', 'netflix_6digit_allowed' => true, 'netflix_otp_4digit' => false, 'netflix_otp_6digit' => false, 'active' => true],
