@@ -122,9 +122,11 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
         ::-webkit-scrollbar-thumb { background: #fbcfe8; border-radius: 10px; }
         ::selection { background: #fba8cf; color: #fff; }
 
-        @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after { animation: none !important; transition: none !important; }
-        }
+        /* ปิดการขยับทั้งหมดในหน้า (เหลือแค่วงกลมหมุนตอนกำลังโหลดเท่านั้น) */
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+        .spinner { animation: spin 1s linear infinite !important; }
+        .app-btn:hover, .app-btn:active, .btn-candy:hover, .btn-candy:active,
+        .scale-95, .scale-100, [class*="active:scale"]:active, .group:hover [class*="translate-x"] { transform: none !important; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -530,8 +532,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
                 container.innerHTML = `
                     <div class="flex flex-col items-center justify-center py-9 px-4 text-center space-y-4 bg-candy-50/70 rounded-3xl border-2 border-dashed border-candy-200 select-none">
                         <div class="relative flex items-center justify-center">
-                            <div class="spinner" style="width:3rem;height:3rem"></div>
-                            <span class="absolute text-base animate-bounce">💌</span>
+                            <span class="text-3xl">💌</span>
                         </div>
                         <div class="space-y-1">
                             <p class="text-sm font-semibold text-candy-600">กำลังรอรับข้อความ OTP ล่าสุด...</p>
