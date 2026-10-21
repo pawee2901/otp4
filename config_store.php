@@ -82,6 +82,8 @@ function ensure_schema($pdo) {
         if (array_diff($required, $existing)) {
             bootstrap_schema($pdo); // ทุกคำสั่งเป็น IF NOT EXISTS / INSERT IGNORE รันซ้ำได้ปลอดภัย
         }
+        // เปลี่ยนชื่อร้านจากค่าเริ่มต้นเดิม 'Monali Premium' เป็น 'Monalishop' (เฉพาะกรณียังไม่เคยแก้ชื่อเองในแอดมิน)
+        $pdo->exec("UPDATE settings SET shop_name = 'Monalishop' WHERE id = 1 AND shop_name = 'Monali Premium'");
     } catch (Throwable $e) {
         error_log('bootstrap_schema failed: ' . $e->getMessage());
     }

@@ -7,7 +7,7 @@ USE otp;
 
 CREATE TABLE IF NOT EXISTS settings (
     id TINYINT UNSIGNED NOT NULL PRIMARY KEY DEFAULT 1,
-    shop_name VARCHAR(191) NOT NULL DEFAULT 'Monali Premium',
+    shop_name VARCHAR(191) NOT NULL DEFAULT 'Monalishop',
     logo_path MEDIUMTEXT NULL,
     disney_logo_path VARCHAR(255) NOT NULL DEFAULT '',
     trueid_logo_path VARCHAR(255) NOT NULL DEFAULT '',
@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS pin_attempts (
 
 -- ค่าเริ่มต้น: แอดมิน admin / admin1234 (เข้าแล้วเปลี่ยนรหัสในแท็บตั้งค่า API ทันที)
 INSERT IGNORE INTO settings (id, shop_name, logo_path, admin_username, admin_password)
-VALUES (1, 'Monali Premium', '/static/monali_logo.jpg', 'admin', 'admin1234');
+VALUES (1, 'Monalishop', '/static/monali_logo.jpg', 'admin', 'admin1234');
 
 INSERT IGNORE INTO apps (id, name, code, logo_path, keywords, sort_order, active) VALUES
 ('app_prime',   'Prime Video', 'PR',  '/static/app_tile_prime.png',   'prime',   0, 1),

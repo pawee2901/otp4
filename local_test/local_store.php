@@ -9,7 +9,7 @@ define('LOCAL_STORE_FILE', __DIR__ . '/config.local.json');
 
 function local_seed_config() {
     return [
-        'shop_name'        => 'Monali Premium',
+        'shop_name'        => 'Monalishop',
         'logo_path'        => '/static/monali_logo.jpg',
         'disney_logo_path' => '',
         'trueid_logo_path' => '',
