@@ -58,76 +58,27 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
             background-attachment: fixed;
             overflow-x: hidden;
         }
-        /* ฉากหลังกรอบเมฆ/ดอกไม้ ขยับหายใจช้า ๆ */
+        /* ฉากหลังแบบนิ่ง จาง ๆ ไม่แย่งสายตา */
         .scene {
-            position: fixed; inset: 0; z-index: 0; pointer-events: none;
+            position: fixed; inset: -20px; z-index: 0; pointer-events: none;
             background: url('/static/monali_bg.jpg') center / cover no-repeat;
-            animation: breathe 14s ease-in-out infinite;
-        }
-        .scene::after { /* ทำให้ตรงกลางสว่าง อ่านง่าย */
-            content: ''; position: absolute; inset: 0;
-            background: radial-gradient(ellipse at center, rgba(255,255,255,.55) 0%, rgba(255,255,255,0) 70%);
-        }
-        @media (max-width: 767px) {
-            .scene { opacity: .55; }
-        }
-        @keyframes breathe { 0%,100% { transform: scale(1.02); } 50% { transform: scale(1.06); } }
-
-        /* น้อง ๆ มุมจอ */
-        .buddy { position: fixed; bottom: 0; z-index: 1; pointer-events: none; will-change: transform; }
-        .buddy-girl    { left: 0; width: min(34vw, 340px); transform-origin: 30% 100%; animation: girlBob 4.2s ease-in-out infinite; }
-        .buddy-penguin { right: 0; width: min(32vw, 320px); transform-origin: 60% 100%; animation: pengWaddle 2.8s ease-in-out infinite; }
-        @media (max-width: 767px) {
-            .buddy-girl    { width: 42vw; opacity: .9; }
-            .buddy-penguin { width: 40vw; opacity: .9; }
-        }
-        @keyframes girlBob {
-            0%,100% { transform: translateY(6px) rotate(0deg); }
-            25%     { transform: translateY(-4px) rotate(-1.6deg); }
-            50%     { transform: translateY(2px) rotate(0deg); }
-            75%     { transform: translateY(-6px) rotate(1.4deg); }
-        }
-        @keyframes pengWaddle {
-            0%,100% { transform: translateY(4px) rotate(-2deg); }
-            50%     { transform: translateY(-6px) rotate(2deg); }
+            opacity: .28; filter: blur(3px) saturate(.85);
         }
 
-        /* โลโก้น้อง Monali ลอยไปมา + กดแล้วกระโดด */
-        .logo-wrap { position: relative; width: 9.5rem; height: 9.5rem; animation: floaty 3.6s ease-in-out infinite; cursor: pointer; }
-        @media (min-width: 768px) { .logo-wrap { width: 11rem; height: 11rem; } }
+        /* โลโก้ร้าน */
+        .logo-wrap { position: relative; width: 8rem; height: 8rem; }
+        @media (min-width: 768px) { .logo-wrap { width: 9.5rem; height: 9.5rem; } }
         .logo-wrap img {
             width: 100%; height: 100%; object-fit: cover; border-radius: 2.2rem;
             border: 5px solid #fff;
-            box-shadow: 0 14px 34px -10px rgba(236,106,168,.55), 0 0 0 6px rgba(254,205,228,.6);
-            animation: tilt 5s ease-in-out infinite;
+            box-shadow: 0 12px 28px -12px rgba(236,106,168,.45);
         }
-        .logo-wrap.jump img { animation: boing .7s cubic-bezier(.3,1.6,.5,1); }
-        .logo-wrap .spark {
-            position: absolute; font-size: 1.1rem; animation: twinkle 2.4s ease-in-out infinite;
-            filter: drop-shadow(0 2px 3px rgba(236,106,168,.35));
-        }
-        @keyframes floaty { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
-        @keyframes tilt   { 0%,100% { transform: rotate(-2.5deg); } 50% { transform: rotate(2.5deg); } }
-        @keyframes boing  {
-            0% { transform: scale(1) } 30% { transform: scale(1.12, .9) translateY(4px) }
-            55% { transform: scale(.94, 1.1) translateY(-14px) rotate(-4deg) } 80% { transform: scale(1.03, .97) } 100% { transform: scale(1) }
-        }
-        @keyframes twinkle { 0%,100% { transform: scale(.6) rotate(0); opacity: .3; } 50% { transform: scale(1.15) rotate(20deg); opacity: 1; } }
 
-        /* หัวใจ/ดาวลอยขึ้น */
-        .floater { position: fixed; bottom: -40px; z-index: 1; pointer-events: none; animation: rise linear forwards; }
-        @keyframes rise {
-            0%   { transform: translateY(0) translateX(0) rotate(0); opacity: 0; }
-            10%  { opacity: .9; }
-            100% { transform: translateY(-110vh) translateX(var(--drift, 30px)) rotate(var(--spin, 180deg)); opacity: 0; }
-        }
 
         .glass {
-            background: rgba(255,255,255,.86);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 2px solid rgba(255,255,255,.95);
-            box-shadow: 0 18px 40px -18px rgba(217,79,146,.35), inset 0 0 0 1px rgba(254,205,228,.6);
+            background: rgba(255,255,255,.96);
+            border: 1px solid #fde2ef;
+            box-shadow: 0 16px 40px -20px rgba(217,79,146,.30);
         }
         .title-cute {
             font-family: 'Mali', 'Mitr', sans-serif; font-weight: 700;
@@ -135,10 +86,8 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
             -webkit-background-clip: text; background-clip: text; color: transparent;
         }
         .app-btn { transition: transform .25s cubic-bezier(.3,1.5,.5,1), box-shadow .25s; }
-        .app-btn:hover  { transform: translateY(-5px) rotate(-1deg); box-shadow: 0 16px 28px -14px rgba(217,79,146,.45); }
+        .app-btn:hover  { transform: translateY(-2px); box-shadow: 0 10px 20px -14px rgba(217,79,146,.45); }
         .app-btn:active { transform: scale(.96); }
-        .app-btn:hover .app-logo { animation: wiggle .5s ease-in-out; }
-        @keyframes wiggle { 0%,100%{transform:rotate(0)} 25%{transform:rotate(-8deg)} 75%{transform:rotate(8deg)} }
 
         .btn-candy {
             background: linear-gradient(90deg, #f687b8, #c4b5fd);
@@ -182,24 +131,19 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
 
     <!-- ฉากหลัง + น้อง ๆ ที่ขยับได้ -->
     <div class="scene" aria-hidden="true"></div>
-    <img src="/static/monali_girl.webp" class="buddy buddy-girl" alt="" aria-hidden="true">
-    <img src="/static/monali_penguin.webp" class="buddy buddy-penguin" alt="" aria-hidden="true">
 
-    <main class="relative z-10 min-h-screen flex flex-col items-center justify-center px-4 py-8 md:py-10 pb-40 md:pb-16">
+    <main class="relative z-10 min-h-screen flex flex-col items-center justify-center px-4 py-8 md:py-10 pb-10">
     <div class="w-full max-w-lg flex flex-col gap-6">
 
         <!-- Header & Shop Logo -->
         <div class="text-center space-y-3">
             <div class="flex flex-col items-center justify-center gap-3">
-                <div class="logo-wrap" id="logoWrap" onclick="bounceLogo()" title="แตะน้องได้นะ">
+                <div class="logo-wrap" id="logoWrap">
                     <img src="<?php echo htmlspecialchars($shop_logo); ?>" alt="<?php echo htmlspecialchars($config['shop_name']); ?> logo"
                          onerror="this.src='<?php echo htmlspecialchars($config['logo_path'] ?? ''); ?>'">
-                    <span class="spark" style="top:-10px; left:-12px; animation-delay:.2s">✨</span>
-                    <span class="spark" style="top:8px; right:-16px; animation-delay:1.1s">💖</span>
-                    <span class="spark" style="bottom:-6px; left:-14px; animation-delay:1.7s">⭐</span>
                 </div>
                 <div class="space-y-1">
-                    <h1 class="title-cute text-3xl md:text-4xl leading-tight drop-shadow-sm"><?php echo htmlspecialchars($config['shop_name']); ?></h1>
+                    <h1 class="title-cute text-2xl md:text-3xl leading-tight"><?php echo htmlspecialchars($config['shop_name']); ?></h1>
                     <p class="inline-flex items-center gap-1.5 text-xs font-medium text-candy-600 bg-white/80 px-3 py-1 rounded-full shadow-sm">
                         <span class="w-1.5 h-1.5 rounded-full bg-mint-400 animate-pulse"></span>
                         กดรับ OTP เองได้ ตลอด 24 ชั่วโมง
@@ -224,7 +168,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
                         ['name' => 'TrueID', 'logo_path' => $config['trueid_logo_path'] ?? '']
                     ];
                 }
-                $pastels = [['#fff0f7', '#fecde4'], ['#f3eeff', '#ddd0ff'], ['#eafbf7', '#b8f0e8'], ['#fff9e8', '#fde68a'], ['#eef6ff', '#c7ddff']];
+                $pastels = [['#fff7fb', '#fbe1ee']];
                 foreach ($apps_list as $i => $app_item):
                     $app_name = htmlspecialchars($app_item['name']);
                     $app_js   = htmlspecialchars(json_encode($app_item['name'], JSON_UNESCAPED_UNICODE), ENT_QUOTES);
@@ -349,8 +293,6 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
 
                 <div id="otpDisplayCard" class="relative overflow-hidden rounded-[1.8rem] p-6 text-center space-y-3 border-2 border-candy-100"
                      style="background: linear-gradient(135deg,#fff0f7 0%,#f3eeff 55%,#eafbf7 100%);">
-                    <span class="absolute top-2 left-4 text-lg opacity-70">🌸</span>
-                    <span class="absolute bottom-2 right-4 text-lg opacity-70">⭐</span>
                     <p id="otpLabel" class="text-[11px] font-semibold text-candy-500 tracking-wider">รหัสยืนยันตัวตน (OTP)</p>
                     <div class="flex flex-col items-center justify-center gap-1">
                         <span id="otpCodeNumber" class="font-cute text-5xl font-bold text-candy-600 tracking-[0.2em] select-all">-</span>
@@ -391,29 +333,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
         let pollingInterval = null;
         let isPolling = false;
 
-        // ---------- น้อง ๆ ขยับ ----------
-        function bounceLogo() {
-            const w = document.getElementById('logoWrap');
-            w.classList.remove('jump'); void w.offsetWidth; w.classList.add('jump');
-            for (let i = 0; i < 6; i++) setTimeout(spawnFloater, i * 90);
-        }
-        const FLOAT_ICONS = ['💗', '💖', '⭐', '🌸', '✨', '🎀', '💜', '🩵'];
-        function spawnFloater() {
-            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-            const el = document.createElement('span');
-            el.className = 'floater';
-            el.textContent = FLOAT_ICONS[Math.floor(Math.random() * FLOAT_ICONS.length)];
-            el.style.left = (Math.random() * 100) + 'vw';
-            el.style.fontSize = (14 + Math.random() * 16) + 'px';
-            el.style.setProperty('--drift', ((Math.random() - .5) * 120) + 'px');
-            el.style.setProperty('--spin', ((Math.random() - .5) * 360) + 'deg');
-            const dur = 9 + Math.random() * 8;
-            el.style.animationDuration = dur + 's';
-            document.body.appendChild(el);
-            setTimeout(() => el.remove(), dur * 1000);
-        }
-        setInterval(spawnFloater, 1400);
-        for (let i = 0; i < 4; i++) setTimeout(spawnFloater, i * 400);
+        function bounceLogo() {}
 
         // ---------- ช่องรหัสผ่าน 4 หลัก ----------
         const pinBoxes = Array.from(document.querySelectorAll('.pin-box'));
