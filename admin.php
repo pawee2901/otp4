@@ -22,7 +22,32 @@ function uploaded_image_to_data_uri($tmp_path, $ext) {
 }
 
 // เช็คความปลอดภัยการล็อกอิน
-$logged_in = isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true;
+// คุกกี้ล็อกอินแบบเซ็นลายเซ็น (อยู่รอดแม้เซิร์ฟเวอร์รีสตาร์ต — Render ฟรีลบ session ทุกครั้งที่รีสตาร์ต/อัปเดต)
+// เปลี่ยนรหัสแอดมินเมื่อไหร่ คุกกี้เก่าใช้ไม่ได้ทันที
+define('ADMIN_COOKIE', 'otp_admin');
+define('ADMIN_COOKIE_DAYS', 30);
+function admin_cookie_sig($config, $expires) {
+    $secret = hash('sha256', ($config['admin_username'] ?? '') . '|' . ($config['admin_password'] ?? '') . '|' . DB_PASS . '|' . DB_HOST);
+    return hash_hmac('sha256', 'admin|' . $expires, $secret);
+}
+function admin_set_cookie($config) {
+    $expires = time() + ADMIN_COOKIE_DAYS * 86400;
+    $secure = (($_SERVER['HTTPS'] ?? '') === 'on') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    setcookie(ADMIN_COOKIE, $expires . '.' . admin_cookie_sig($config, $expires), [
+        'expires' => $expires, 'path' => '/', 'secure' => $secure, 'httponly' => true, 'samesite' => 'Lax'
+    ]);
+}
+function admin_cookie_valid($config) {
+    $raw = $_COOKIE[ADMIN_COOKIE] ?? '';
+    if (!preg_match('/^(\d+)\.([a-f0-9]{64})$/', $raw, $m)) return false;
+    if ((int)$m[1] < time()) return false;
+    return hash_equals(admin_cookie_sig($config, (int)$m[1]), $m[2]);
+}
+
+$logged_in = (isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true) || admin_cookie_valid($config);
+if ($logged_in) {
+    $_SESSION['admin_logged_in'] = true;
+}
 
 // ==========================================
 // ส่วนประมวลผลคำขอร้องแบบ AJAX (POST Asynchronous)
@@ -37,6 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($username === $config['admin_username'] && $password === $config['admin_password']) {
             $_SESSION['admin_logged_in'] = true;
+            admin_set_cookie($config);
             echo json_encode(['success' => true, 'message' => 'เข้าสู่ระบบสำเร็จ']);
         } else {
             http_response_code(400);
@@ -73,6 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (isset($_POST['api_key_2'])) $config['api_key_2'] = trim($_POST['api_key_2']);
 
         if (save_config($config)) {
+            admin_set_cookie($config); // รหัสใหม่ -> ออกคุกกี้ใหม่ให้ ไม่ต้องล็อกอินซ้ำ
             echo json_encode(['success' => true, 'message' => 'บันทึกข้อมูลเรียบร้อยแล้ว']);
         } else {
             http_response_code(500);
@@ -404,7 +431,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $item_data = [
-            'id' => $found_index >= 0 ? $config['api_providers'][$found_index]['id'] : 'api_' . time(),
+            'id' => $found_index >= 0 ? $config['api_providers'][$found_index]['id'] : 'api_' . time() . '_' . mt_rand(100, 999),
             'name' => $name,
             'token' => $token,
             'url' => $type === 'cloud_run' ? $token : null,
@@ -508,6 +535,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 if (isset($_GET['action']) && $_GET['action'] === 'logout') {
     unset($_SESSION['admin_logged_in']);
     session_destroy();
+    setcookie(ADMIN_COOKIE, '', ['expires' => time() - 3600, 'path' => '/']);
     header('Location: admin.php');
     exit;
 }
