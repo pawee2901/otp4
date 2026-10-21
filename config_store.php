@@ -75,6 +75,16 @@ function ensure_schema($pdo) {
     static $done = false;
     if ($done) return;
     $done = true;
+    // ฐานข้อมูลใหม่ที่ยังไม่มีตาราง (เช่น TiDB Cloud ที่เพิ่งสร้าง) -> สร้างตาราง + ข้อมูลเริ่มต้นจาก tidb_setup.sql ให้เอง
+    try {
+        $existing = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+        $required = ['settings', 'apps', 'imap_emails', 'api_providers', 'gmail_central_accounts', 'maily_central_accounts', 'pin_attempts'];
+        if (array_diff($required, $existing)) {
+            bootstrap_schema($pdo); // ทุกคำสั่งเป็น IF NOT EXISTS / INSERT IGNORE รันซ้ำได้ปลอดภัย
+        }
+    } catch (Throwable $e) {
+        error_log('bootstrap_schema failed: ' . $e->getMessage());
+    }
     try {
         if (!$pdo->query("SHOW COLUMNS FROM imap_emails LIKE 'access_pin'")->fetch()) {
             $pdo->exec("ALTER TABLE imap_emails ADD COLUMN access_pin VARCHAR(10) NULL AFTER app_id");
@@ -97,6 +107,18 @@ function ensure_schema($pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     } catch (Throwable $e) {
         error_log('ensure_schema failed: ' . $e->getMessage());
+    }
+}
+
+// รันไฟล์ tidb_setup.sql ทีละคำสั่ง (ข้าม CREATE DATABASE / USE เพราะเชื่อมต่อเข้าฐานข้อมูลอยู่แล้ว)
+function bootstrap_schema($pdo) {
+    $file = __DIR__ . '/tidb_setup.sql';
+    if (!file_exists($file)) return;
+    $sql = preg_replace('/^\s*--.*$/m', '', (string)file_get_contents($file));
+    foreach (preg_split('/;\s*(?:\r?\n|$)/', $sql) as $stmt) {
+        $stmt = trim($stmt);
+        if ($stmt === '' || preg_match('/^(CREATE\s+DATABASE|USE)\b/i', $stmt)) continue;
+        $pdo->exec($stmt);
     }
 }
 
