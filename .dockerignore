@@ -1,0 +1,7 @@
+.git
+local_test
+db_credentials.php
+config.json
+config.backup.json
+scratch
+*.md

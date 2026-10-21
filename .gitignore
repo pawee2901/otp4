@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.log
+scratch/
+.idea/
+.vscode/
+node_modules/
+_backup_*/
+
+# ข้อมูลจริง/รหัสผ่าน — ห้ามขึ้น git
+config.json
+config.backup.json
+db_credentials.php
+seed_data_real.sql
+
+# ไฟล์ข้อมูลของโหมดทดลองในเครื่อง
+local_test/config.local.json
