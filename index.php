@@ -158,7 +158,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
         <!-- หน้าแรก: เลือกแอปพลิเคชัน -->
         <!-- ========================================== -->
         <div id="appSelectionScreen" class="glass rounded-[2rem] p-5 md:p-7 space-y-5 transition-all duration-500">
-            <h2 class="text-center font-cute text-lg md:text-2xl font-bold text-candy-700">เลือกแอปที่ต้องการรับรหัสยืนยัน 🎀</h2>
+            <h2 class="text-center font-cute text-lg md:text-2xl font-bold text-candy-700">เลือกแอปที่ต้องการรับรหัสยืนยัน</h2>
 
             <div class="grid grid-cols-2 gap-3 md:gap-4">
                 <?php
@@ -206,7 +206,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
                 </div>
 
                 <div class="text-center space-y-1">
-                    <h2 class="font-cute text-lg md:text-xl font-bold text-candy-700">ขอรหัสยืนยันทางอีเมล 💌</h2>
+                    <h2 class="font-cute text-lg md:text-xl font-bold text-candy-700">ขอรหัสยืนยันทางอีเมล</h2>
                     <p class="text-xs md:text-sm text-[#9a6f8a]">กรอกอีเมล และรหัสผ่าน 4 หลักที่ได้รับจากแอดมินค่ะ</p>
                 </div>
 
@@ -266,13 +266,13 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
                 <button onclick="goBackToSelection()" class="flex items-center gap-1.5 text-xs text-candy-400 hover:text-candy-600 font-medium transition-all">
                     <i class="fa-solid fa-arrow-left-long"></i><span>ย้อนกลับ</span>
                 </button>
-                <span class="text-[11px] text-candy-400">🐧 Monali OTP</span>
+                <span class="text-[11px] text-candy-400">Monali OTP</span>
             </div>
 
             <!-- 1. Inbox List View -->
             <div id="inboxListView" class="p-4 md:p-6 space-y-4">
                 <div class="flex items-center justify-between text-xs font-semibold text-candy-700 border-b border-candy-100 pb-2">
-                    <span>📨 กล่องจดหมายเข้าล่าสุด</span>
+                    <span>กล่องจดหมายเข้าล่าสุด</span>
                     <span class="inline-flex items-center gap-1 bg-mint-100 text-teal-700 text-[10px] px-2.5 py-0.5 rounded-full">
                         <span class="h-1.5 w-1.5 rounded-full bg-mint-400 animate-pulse"></span>
                         <span>อัปเดตอัตโนมัติ (5s)</span>
@@ -453,7 +453,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
             toggleIframeBtn.innerHTML = '<i class="fa-solid fa-eye-slash"></i> <span id="toggleIframeText">แสดงจดหมายฉบับจริง</span>';
 
             if (emailData.blocked) {
-                otpLabel.innerText = '🔒 ' + (emailData.blocked_reason || 'รหัสนี้ถูกปิดไว้โดยแอดมิน');
+                otpLabel.innerText = '' + (emailData.blocked_reason || 'รหัสนี้ถูกปิดไว้โดยแอดมิน');
                 otpCodeNumber.innerText = '••••••';
                 otpCodeNumber.classList.add('opacity-40');
                 otpRefText.innerText = 'หากต้องการใช้รหัสนี้ กรุณาติดต่อแอดมินร้านค่ะ';
@@ -502,7 +502,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
             const otpText = document.getElementById('otpCodeNumber').innerText;
             if (otpText && otpText !== '-' && otpText !== 'ไม่พบรหัส OTP') {
                 navigator.clipboard.writeText(otpText).then(() => {
-                    toast('คัดลอกรหัส OTP แล้วค่า 💖');
+                    toast('คัดลอกรหัส OTP แล้วค่ะ');
                     bounceLogo();
                 }).catch(err => console.error('Could not copy text: ', err));
             }
@@ -532,7 +532,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
                 container.innerHTML = `
                     <div class="flex flex-col items-center justify-center py-9 px-4 text-center space-y-4 bg-candy-50/70 rounded-3xl border-2 border-dashed border-candy-200 select-none">
                         <div class="relative flex items-center justify-center">
-                            <span class="text-3xl">💌</span>
+                            <i class="fa-regular fa-envelope text-3xl text-candy-300"></i>
                         </div>
                         <div class="space-y-1">
                             <p class="text-sm font-semibold text-candy-600">กำลังรอรับข้อความ OTP ล่าสุด...</p>
