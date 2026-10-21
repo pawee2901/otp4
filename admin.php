@@ -379,6 +379,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = isset($_POST['name']) ? trim($_POST['name']) : '';
         $token = isset($_POST['token']) ? trim($_POST['token']) : '';
         $type = isset($_POST['type']) ? trim($_POST['type']) : 'maily';
+        if (!in_array($type, ['maily', 'cloud_run'], true)) {
+            $type = 'maily'; // ฐานข้อมูลรองรับแค่ maily / cloud_run
+        }
 
         if (empty($name) || empty($token)) {
             http_response_code(400);
@@ -404,6 +407,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'id' => $found_index >= 0 ? $config['api_providers'][$found_index]['id'] : 'api_' . time(),
             'name' => $name,
             'token' => $token,
+            'url' => $type === 'cloud_run' ? $token : null,
             'type' => $type,
             'active' => true
         ];
@@ -414,7 +418,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $config['api_providers'][] = $item_data;
         }
 
-        save_config($config);
+        if (!save_config($config)) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'message' => 'บันทึก API Key ไม่สำเร็จ (ฐานข้อมูลมีปัญหา)']);
+            exit;
+        }
         echo json_encode(['success' => true, 'message' => 'บันทึก API Key สำเร็จ', 'data' => $config['api_providers']]);
         exit;
     }
@@ -1388,7 +1396,6 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
                     <select id="apiKeyTypeInput" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs focus:ring-2 focus:ring-purple-600 outline-none bg-white">
                         <option value="maily">Maily Space API (Bearer Token)</option>
                         <option value="cloud_run">Cloud Run API (RDCW Co., Ltd.)</option>
-                        <option value="custom">Custom Webhook API</option>
                     </select>
                 </div>
 
