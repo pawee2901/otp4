@@ -58,11 +58,11 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
             background-attachment: fixed;
             overflow-x: hidden;
         }
-        /* ฉากหลังแบบนิ่ง จาง ๆ ไม่แย่งสายตา */
+        /* ฉากหลังแบบเดียวกับหน้าแอดมิน (รูปชัด ไม่เบลอ ความจาง 35%) */
         .scene {
-            position: fixed; inset: -20px; z-index: 0; pointer-events: none;
+            position: fixed; inset: 0; z-index: 0; pointer-events: none;
             background: url('/static/monali_bg.jpg') center / cover no-repeat;
-            opacity: .28; filter: blur(3px) saturate(.85);
+            opacity: .35;
         }
 
         /* โลโก้ร้าน */
