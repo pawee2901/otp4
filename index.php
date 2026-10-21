@@ -173,7 +173,17 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
                 foreach ($apps_list as $i => $app_item):
                     $app_name = htmlspecialchars($app_item['name']);
                     $app_js   = htmlspecialchars(json_encode($app_item['name'], JSON_UNESCAPED_UNICODE), ENT_QUOTES);
-                    $logo = htmlspecialchars($app_item['logo_path'] ?? '');
+                    // ใช้รูปปุ่มสำเร็จรูปในโฟลเดอร์ static ให้อัตโนมัติตามชื่อแอป (ไม่ต้องอัปโหลดเองในแอดมิน)
+                    // แอปอื่นที่ไม่มีรูปสำเร็จรูป ใช้รูปที่ตั้งไว้ในหน้าแอดมินตามเดิม
+                    $lower_name = mb_strtolower($app_item['name']);
+                    $tile = '';
+                    if (strpos($lower_name, 'netflix') !== false) $tile = 'netflix';
+                    elseif (strpos($lower_name, 'disney') !== false) $tile = 'disney';
+                    elseif (strpos($lower_name, 'prime') !== false || strpos($lower_name, 'amazon') !== false) $tile = 'prime';
+                    elseif (strpos($lower_name, 'chatgpt') !== false || strpos($lower_name, 'gpt') !== false || strpos($lower_name, 'openai') !== false) $tile = 'chatgpt';
+                    elseif (preg_match('/true\s*id/u', $lower_name)) $tile = 'trueid';
+                    $tile_path = $tile !== '' ? '/static/app_tile_' . $tile . '.png' : '';
+                    $logo = ($tile_path !== '' && file_exists(__DIR__ . $tile_path)) ? $tile_path : htmlspecialchars($app_item['logo_path'] ?? '');
                 ?>
                 <!-- ปุ่มแอปเป็นรูปเต็มช่อง ไม่มีกรอบ ไม่มีชื่อ (รูปตั้งในหน้าแอดมิน > แอปพลิเคชัน) — ถ้ายังไม่มีรูปจะโชว์ชื่อแอปแทน -->
                 <button type="button" onclick="selectApp(<?php echo $app_js; ?>)" aria-label="<?php echo $app_name; ?>" title="<?php echo $app_name; ?>"
