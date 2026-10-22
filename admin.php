@@ -687,7 +687,7 @@ function render_admin_email_card($item, $app_options, $is_ms) {
     $prov_label = ['maily' => 'Maily', 'gmail' => !empty($item['password']) ? 'Gmail' : 'Gmail (ลูกค้า)', 'hotmail' => 'Hotmail', 'microsoft_graph' => 'Microsoft'][$item['provider'] ?? ''] ?? '';
     ob_start(); ?>
     <div class="<?php echo $card_class; ?> rounded-2xl p-3 space-y-2.5 border transition-all <?php echo $active ? 'bg-white/90 border-pink-100' : 'bg-rose-50/60 border-rose-200/70 opacity-90'; ?>"
-         data-email="<?php echo htmlspecialchars(strtolower($item['email'] ?? '')); ?>" data-app="<?php echo htmlspecialchars($app_id); ?>" data-haspin="<?php echo $pin !== '' ? '1' : '0'; ?>">
+         data-email="<?php echo htmlspecialchars(strtolower($item['email'] ?? '')); ?>" data-app="<?php echo htmlspecialchars($app_id); ?>" data-domain="<?php echo htmlspecialchars(strtolower(substr(strrchr($item['email'] ?? '', '@') ?: '', 1))); ?>" data-haspin="<?php echo $pin !== '' ? '1' : '0'; ?>">
         <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2 min-w-0">
                 <i class="<?php echo $icon; ?>"></i>
@@ -1011,6 +1011,25 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
                         <button type="button" data-app-filter="<?php echo htmlspecialchars($opt_id); ?>" onclick="setAppFilter('<?php echo htmlspecialchars($opt_id); ?>')" class="app-chip"><?php echo htmlspecialchars($opt_id === 'all' ? 'ไม่แยกหมวด' : $opt_name); ?> <span><?php echo $app_counts[$opt_id] ?? 0; ?></span></button>
                         <?php endforeach; ?>
                         <button type="button" data-app-filter="__nopin" onclick="setAppFilter('__nopin')" class="app-chip">ยังไม่ตั้งรหัส <span><?php echo $no_pin_count; ?></span></button>
+                    </div>
+                </div>
+
+                <!-- แยกอีเมลตามนามสกุลเมล (@gmail.com, @hotmail.com, @lico.moe ...) ใช้ร่วมกับตัวกรองแอปได้ -->
+                <?php
+                    $domain_counts = [];
+                    foreach ($imap_emails_all as $ce) {
+                        $dm = strtolower(substr(strrchr($ce['email'] ?? '', '@') ?: '', 1));
+                        if ($dm !== '') $domain_counts[$dm] = ($domain_counts[$dm] ?? 0) + 1;
+                    }
+                    arsort($domain_counts);
+                ?>
+                <div class="space-y-2">
+                    <p class="text-[11px] font-bold text-gray-500"><i class="fa-solid fa-at text-pink-400 mr-1"></i>แยกดูตามนามสกุลเมล</p>
+                    <div class="flex flex-wrap gap-1.5" id="domainFilterChips">
+                        <button type="button" data-domain-filter="__all" onclick="setDomainFilter('__all')" class="app-chip active">ทุกนามสกุล <span><?php echo count($imap_emails_all); ?></span></button>
+                        <?php foreach ($domain_counts as $dm => $cnt): ?>
+                        <button type="button" data-domain-filter="<?php echo htmlspecialchars($dm); ?>" onclick="setDomainFilter('<?php echo htmlspecialchars($dm); ?>')" class="app-chip">@<?php echo htmlspecialchars($dm); ?> <span><?php echo $cnt; ?></span></button>
+                        <?php endforeach; ?>
                     </div>
                 </div>
 
@@ -1819,7 +1838,14 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
 
         // --- แยกอีเมลตามแอป ---
         let currentAppFilter = '__all';
+        let currentDomainFilter = '__all';
+        function setDomainFilter(dm) {
+            currentDomainFilter = dm;
+            document.querySelectorAll('[data-domain-filter]').forEach(b => b.classList.toggle('active', b.dataset.domainFilter === dm));
+            setAppFilter(currentAppFilter);
+        }
         function cardMatchesApp(card) {
+            if (currentDomainFilter !== '__all' && (card.dataset.domain || '') !== currentDomainFilter) return false;
             if (currentAppFilter === '__all') return true;
             if (currentAppFilter === '__nopin') return card.dataset.haspin !== '1';
             return (card.dataset.app || 'all') === currentAppFilter;
