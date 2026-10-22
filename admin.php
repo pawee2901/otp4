@@ -507,6 +507,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    // --- Action: นำเข้าข้อมูลจากเว็บเก่า (ไฟล์ .sql ที่ Export จาก phpMyAdmin หรือ config.json) ---
+    // ไม่ทับชื่อร้าน/โลโก้/บัญชีแอดมินปัจจุบัน — อีเมล/แอป/API/บัญชีกลาง ที่ซ้ำกันจะถูกอัปเดตเป็นค่าจากไฟล์
+    if ($action === 'import_data') {
+        header('Content-Type: application/json');
+        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'กรุณาเลือกไฟล์ .sql หรือ .json']);
+            exit;
+        }
+        $raw = (string)file_get_contents($_FILES['file']['tmp_name']);
+        $raw = preg_replace('/^\xEF\xBB\xBF/', '', $raw); // ตัด BOM
+        $before = $config;
+        $count = [];
+
+        try {
+            $json = json_decode($raw, true);
+            if (is_array($json) && (isset($json['imap_emails']) || isset($json['apps']))) {
+                // ---- config.json แบบเก่า: รวมเข้ากับข้อมูลปัจจุบัน ----
+                $merge = function ($current, $incoming, $keyFn) {
+                    $map = [];
+                    foreach ($current as $row) $map[$keyFn($row)] = $row;
+                    foreach ($incoming as $row) {
+                        $k = $keyFn($row);
+                        $map[$k] = array_merge($map[$k] ?? [], $row);
+                    }
+                    return array_values($map);
+                };
+                $config['imap_emails'] = $merge($config['imap_emails'] ?? [], $json['imap_emails'] ?? [], function ($r) { return strtolower($r['email'] ?? ''); });
+                $config['apps'] = $merge($config['apps'] ?? [], $json['apps'] ?? [], function ($r) { return $r['id'] ?? ''; });
+                $config['api_providers'] = $merge($config['api_providers'] ?? [], $json['api_providers'] ?? [], function ($r) { return $r['id'] ?? ''; });
+                $config['gmail_central_accounts'] = $merge($config['gmail_central_accounts'] ?? [], $json['gmail_central_accounts'] ?? [], function ($r) { return strtolower($r['user'] ?? ''); });
+                $config['maily_central_accounts'] = array_values(array_unique(array_merge($config['maily_central_accounts'] ?? [], $json['maily_central_accounts'] ?? [])));
+                if (!empty($json['microsoft_oauth']['client_id'])) $config['microsoft_oauth'] = $json['microsoft_oauth'];
+                // api_key_1/2 แบบเก่า -> เพิ่มเป็นรายการ API
+                foreach (['api_key_1', 'api_key_2'] as $i => $k) {
+                    if (!empty($json[$k])) {
+                        $exists = false;
+                        foreach ($config['api_providers'] as $ap) if (($ap['token'] ?? '') === $json[$k]) $exists = true;
+                        if (!$exists) $config['api_providers'][] = ['id' => 'api_import_' . ($i + 1), 'name' => 'Maily Key ' . ($i + 1) . ' (นำเข้า)', 'type' => 'maily', 'token' => $json[$k], 'active' => true];
+                    }
+                }
+                foreach ($config['imap_emails'] as $i => $e) {
+                    if (empty($e['id'])) $config['imap_emails'][$i]['id'] = 'email_import_' . $i . '_' . mt_rand(100, 999);
+                }
+                if (!save_config($config)) throw new RuntimeException('บันทึกข้อมูลไม่สำเร็จ');
+                $count = ['อีเมล' => count($json['imap_emails'] ?? []), 'แอป' => count($json['apps'] ?? []), 'API' => count($json['api_providers'] ?? [])];
+            } else {
+                // ---- ไฟล์ .sql จาก phpMyAdmin: รันเฉพาะคำสั่ง INSERT ของตารางที่รู้จัก (แปลงเป็น REPLACE) ----
+                $allowed = ['settings', 'apps', 'imap_emails', 'api_providers', 'gmail_central_accounts', 'maily_central_accounts'];
+                $pdo = db_connect();
+                $sql = preg_replace('/^\s*(--|#).*$/m', '', $raw);
+                $sql = preg_replace('#/\*.*?\*/;?#s', '', $sql);
+                $stmts = preg_split('/;\s*(?:\r?\n|$)/', $sql);
+                $ran = 0;
+                foreach ($stmts as $stmt) {
+                    $stmt = trim($stmt);
+                    if (!preg_match('/^INSERT\s+(?:IGNORE\s+)?INTO\s+`?(\w+)`?/i', $stmt, $m)) continue;
+                    $table = strtolower($m[1]);
+                    if (!in_array($table, $allowed, true)) continue;
+                    $stmt = preg_replace('/^INSERT\s+(?:IGNORE\s+)?INTO/i', 'REPLACE INTO', $stmt);
+                    $pdo->exec($stmt);
+                    $ran++;
+                    $label = ['settings' => 'ตั้งค่า', 'apps' => 'แอป', 'imap_emails' => 'อีเมล', 'api_providers' => 'API', 'gmail_central_accounts' => 'Gmail กลาง', 'maily_central_accounts' => 'Maily กลาง'][$table];
+                    $count[$label] = ($count[$label] ?? 0) + (preg_match_all('/\)\s*,\s*\(/', $stmt) + 1);
+                }
+                if ($ran === 0) throw new RuntimeException('ไม่พบคำสั่ง INSERT ในไฟล์ (ตอน Export ให้เลือกแบบ SQL และติ๊กข้อมูล "data")');
+                // คืนชื่อร้าน/โลโก้/บัญชีแอดมินปัจจุบัน (ไม่ให้ถูกทับด้วยของเว็บเก่า)
+                $pdo->prepare("UPDATE settings SET shop_name = ?, logo_path = ?, admin_username = ?, admin_password = ? WHERE id = 1")
+                    ->execute([$before['shop_name'], $before['logo_path'], $before['admin_username'], $before['admin_password']]);
+            }
+        } catch (Throwable $e) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'นำเข้าไม่สำเร็จ: ' . $e->getMessage()]);
+            exit;
+        }
+
+        $parts = [];
+        foreach ($count as $k => $v) $parts[] = "$k $v";
+        echo json_encode(['success' => true, 'message' => 'นำเข้าเรียบร้อย: ' . implode(', ', $parts)]);
+        exit;
+    }
+
     // --- Action: บันทึก Client ID / Client Secret ของ Microsoft App (สำหรับเชื่อมต่อ Hotmail/Outlook ผ่าน Graph API) ---
     if ($action === 'save_microsoft_oauth') {
         header('Content-Type: application/json');
@@ -1192,6 +1274,25 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
                     </div>
                 </div>
 
+                <!-- นำเข้าข้อมูลจากเว็บเก่า -->
+                <div class="main-card rounded-3xl border border-gray-100 p-5 md:p-7 space-y-4">
+                    <div class="border-b border-gray-100 pb-3 flex items-center gap-2 text-sm font-extrabold text-gray-900">
+                        <i class="fa-solid fa-file-import text-purple-600"></i>
+                        <span>นำเข้าข้อมูลจากเว็บเก่า (Hostinger)</span>
+                    </div>
+                    <p class="text-xs text-gray-500 leading-relaxed">
+                        phpMyAdmin บน Hostinger &rarr; เลือกฐานข้อมูล &rarr; แท็บ <b>Export</b> &rarr; Format <b>SQL</b> &rarr; กด Export จะได้ไฟล์ <code>.sql</code> แล้วอัปโหลดที่นี่
+                        (หรือใช้ไฟล์ <code>config.json</code> แบบเก่าก็ได้)<br>
+                        <span class="text-rose-500">อีเมลที่นำเข้ายังไม่มีรหัสผ่าน 4 หลัก ต้องไปตั้งรหัสในแท็บอีเมลก่อน ลูกค้าถึงจะขอรหัสได้ · ชื่อร้าน/โลโก้/รหัสแอดมินปัจจุบันจะไม่ถูกเปลี่ยน</span>
+                    </p>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <input type="file" id="importFileInput" accept=".sql,.json,.txt" class="flex-1 text-xs file:mr-3 file:px-3 file:py-2 file:rounded-xl file:border-0 file:bg-purple-50 file:text-purple-700 file:font-bold">
+                        <button type="button" onclick="importData()" id="importBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm">
+                            <i class="fa-solid fa-upload mr-1"></i> นำเข้าข้อมูล
+                        </button>
+                    </div>
+                </div>
+
                 <div class="main-card rounded-3xl border border-gray-100 p-5 md:p-7 space-y-6">
                     <div class="border-b border-gray-100 pb-3 flex items-center gap-2 text-sm font-extrabold text-gray-900">
                         <i class="fa-solid fa-sliders text-purple-600"></i>
@@ -1743,6 +1844,26 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
                 }
             } catch (err) {
                 alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+            }
+        }
+
+        async function importData() {
+            const input = document.getElementById('importFileInput');
+            if (!input.files.length) { alert('กรุณาเลือกไฟล์ .sql หรือ .json ก่อนค่ะ'); return; }
+            if (!confirm('นำเข้าข้อมูลจากไฟล์นี้? (อีเมล/แอป/API ที่ซ้ำกันจะถูกอัปเดตตามไฟล์)')) return;
+            const btn = document.getElementById('importBtn');
+            btn.disabled = true; btn.innerText = 'กำลังนำเข้า...';
+            const formData = new FormData();
+            formData.append('file', input.files[0]);
+            try {
+                const res = await fetch('admin.php?action=import_data', { method: 'POST', body: formData });
+                const data = await res.json();
+                alert(data.message || (data.success ? 'สำเร็จ' : 'ไม่สำเร็จ'));
+                if (data.success) window.location.reload();
+            } catch (err) {
+                alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+            } finally {
+                btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-upload mr-1"></i> นำเข้าข้อมูล';
             }
         }
 
