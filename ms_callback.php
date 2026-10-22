@@ -149,14 +149,16 @@ foreach ($config_data['imap_emails'] as $idx => $item) {
     }
 }
 
-$new_item = [
-    'id'            => $found_idx >= 0 ? $config_data['imap_emails'][$found_idx]['id'] : 'msgraph_' . time(),
+// เชื่อมซ้ำบัญชีเดิม: คงรหัสผ่านลูกค้า 4 หลัก / หมวดแอป / ตั้งค่า Netflix เดิมไว้
+$existing = $found_idx >= 0 ? $config_data['imap_emails'][$found_idx] : [];
+$new_item = array_merge($existing, [
+    'id'            => $existing['id'] ?? ('msgraph_' . time()),
     'email'         => $account_email,
     'provider'      => 'microsoft_graph',
     'refresh_token' => $refresh_token,
-    'app_id'        => 'all',
+    'app_id'        => $existing['app_id'] ?? 'all',
     'active'        => true
-];
+]);
 
 if ($found_idx >= 0) {
     $config_data['imap_emails'][$found_idx] = $new_item;

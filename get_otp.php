@@ -522,6 +522,7 @@ function scan_ms_graph_account(&$config_data, $config_path, $creds, $app_name, $
     curl_close($ch);
 
     if ($token_http_code !== 200 || !$token_res) {
+        error_log('[OTP] Microsoft token failed for ' . ($creds['email'] ?? '') . ' HTTP ' . $token_http_code . ': ' . substr((string)$token_res, 0, 300));
         return [];
     }
 
@@ -562,6 +563,7 @@ function scan_ms_graph_account(&$config_data, $config_path, $creds, $app_name, $
     curl_close($ch2);
 
     if ($mail_http_code !== 200 || !$mail_res) {
+        error_log('[OTP] Microsoft Graph mail list failed for ' . ($creds['email'] ?? '') . ' HTTP ' . $mail_http_code . ': ' . substr((string)$mail_res, 0, 300));
         return [];
     }
 
