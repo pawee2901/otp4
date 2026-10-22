@@ -866,6 +866,10 @@ foreach ($maily_domains as $d) {
         break;
     }
 }
+// อีเมลที่แอดมินเพิ่มไว้เป็นประเภท Maily.space (โดเมนอื่นนอกรายการด้านบน) ก็นับเป็นอีเมล Maily เช่นกัน
+if (($registered_email['provider'] ?? '') === 'maily') {
+    $is_maily_domain = true;
+}
 
 // สร้างรายการบัญชี Maily Space ที่ต้องสืบค้น
 $maily_accounts_to_check = [];

@@ -163,6 +163,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        if ($provider === 'maily') {
+            $host = 'api.maily.space';
+            $password = '';
+        }
         // provider ต้องอยู่ในค่าที่ฐานข้อมูลรองรับ
         if (!in_array($provider, ['gmail', 'hotmail', 'maily', 'microsoft_graph'], true)) {
             $provider = 'gmail';
@@ -680,6 +684,7 @@ function render_admin_email_card($item, $app_options, $is_ms) {
     if (!isset($app_options[$app_id])) $app_id = 'all';
     $card_class = $is_ms ? 'ms-email-card' : 'email-card';
     $icon = $is_ms ? 'fa-brands fa-microsoft text-sky-500' : 'fa-regular fa-envelope ' . ($active ? 'text-emerald-500' : 'text-rose-500');
+    $prov_label = ['maily' => 'Maily', 'gmail' => !empty($item['password']) ? 'Gmail' : 'Gmail (ลูกค้า)', 'hotmail' => 'Hotmail', 'microsoft_graph' => 'Microsoft'][$item['provider'] ?? ''] ?? '';
     ob_start(); ?>
     <div class="<?php echo $card_class; ?> rounded-2xl p-3 space-y-2.5 border transition-all <?php echo $active ? 'bg-white/90 border-pink-100' : 'bg-rose-50/60 border-rose-200/70 opacity-90'; ?>"
          data-email="<?php echo htmlspecialchars(strtolower($item['email'] ?? '')); ?>" data-app="<?php echo htmlspecialchars($app_id); ?>" data-haspin="<?php echo $pin !== '' ? '1' : '0'; ?>">
@@ -687,6 +692,7 @@ function render_admin_email_card($item, $app_options, $is_ms) {
             <div class="flex items-center gap-2 min-w-0">
                 <i class="<?php echo $icon; ?>"></i>
                 <span class="text-xs font-bold text-gray-800 truncate" title="<?php echo $email; ?>"><?php echo $email; ?></span>
+                <?php if ($prov_label !== ''): ?><span class="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 flex-shrink-0"><?php echo $prov_label; ?></span><?php endif; ?>
             </div>
             <div class="flex items-center gap-1.5 flex-shrink-0">
                 <label class="relative inline-flex items-center cursor-pointer" title="<?php echo $active ? 'คลิกเพื่อล็อกอีเมลนี้' : 'คลิกเพื่อปลดล็อกอีเมลนี้'; ?>">
@@ -1369,7 +1375,17 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
             </div>
 
             <form id="emailForm" onsubmit="handleSaveEmail(event)" class="space-y-4">
-                <p class="text-xs text-gray-400">ใส่อีเมลลูกค้า + ตั้งรหัสผ่าน 4 หลักให้ลูกค้า (App Password ใส่เฉพาะ Gmail ที่ให้ระบบอ่านกล่องเมลเองค่ะ)</p>
+                <p class="text-xs text-gray-400">ใส่อีเมลลูกค้า + ตั้งรหัสผ่าน 4 หลักให้ลูกค้า</p>
+
+                <div class="space-y-1.5">
+                    <label class="text-xs font-bold text-gray-700">ประเภทอีเมล</label>
+                    <select id="emailProviderInput" onchange="onEmailProviderChange()" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-xs focus:ring-2 focus:ring-purple-600 outline-none">
+                        <option value="maily">Maily.space (ดึงผ่าน Maily API — ไม่ต้องใส่รหัสอีเมล)</option>
+                        <option value="gmail">Gmail (ใส่ App Password ให้ระบบอ่านกล่องเมลเอง)</option>
+                        <option value="hotmail">Hotmail / Outlook (เชื่อมผ่าน Microsoft ด้านล่าง หรือ Forward)</option>
+                        <option value="other">อื่น ๆ (ดึงผ่านบัญชีกลาง / Forward)</option>
+                    </select>
+                </div>
 
                 <div class="space-y-1.5">
                     <label class="text-xs font-bold text-gray-700">ที่อยู่อีเมล (Email Address)</label>
@@ -1408,7 +1424,7 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-2 gap-3" id="imapHostPortContainer">
                     <div class="space-y-1.5">
                         <label class="text-xs font-bold text-gray-700">IMAP Host</label>
                         <input type="text" id="emailHostInput" value="imap.gmail.com" 
@@ -1647,7 +1663,13 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
         }
 
         // --- IMAP Email Handlers ---
+        function onEmailProviderChange() {
+            const isGmail = document.getElementById('emailProviderInput').value === 'gmail';
+            document.getElementById('passInputContainer').classList.toggle('hidden', !isGmail);
+            document.getElementById('imapHostPortContainer').classList.toggle('hidden', !isGmail);
+        }
         function openAddEmailModal() {
+            onEmailProviderChange();
             document.getElementById('emailModal').classList.remove('hidden');
         }
         function closeEmailModal() {
@@ -1662,6 +1684,7 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
             const port = document.getElementById('emailPortInput').value.trim();
             const pin = document.getElementById('emailPinInput').value.trim();
             const appId = document.getElementById('emailAppInput').value;
+            const providerSel = document.getElementById('emailProviderInput').value;
 
             if (!/^\d{4}$/.test(pin)) {
                 alert('กรุณาตั้งรหัสผ่านลูกค้าเป็นตัวเลข 4 หลักค่ะ');
@@ -1670,10 +1693,10 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
 
             const formData = new FormData();
             formData.append('email', email);
-            formData.append('password', password);
-            // ไม่มี App Password = อีเมลลูกค้าทั่วไป ให้ระบบเลือก provider ตามโดเมนเอง
-            formData.append('provider', password ? 'gmail' : '');
-            formData.append('host', password ? host : '');
+            const useImap = providerSel === 'gmail' && password;
+            formData.append('password', providerSel === 'gmail' ? password : '');
+            formData.append('provider', providerSel === 'other' ? '' : providerSel);
+            formData.append('host', useImap ? host : '');
             formData.append('port', port);
             formData.append('access_pin', pin);
             formData.append('app_id', appId);
