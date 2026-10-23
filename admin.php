@@ -1000,15 +1000,6 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
                     <button type="button" data-app-filter="__nopin" onclick="setAppFilter('__nopin')" class="app-chip warn">ยังไม่ตั้งรหัส <span><?php echo $no_pin_count; ?></span></button>
                 </div>
 
-                <?php if (count($domain_counts) > 1): ?>
-                <div class="flex flex-wrap items-center gap-1.5" id="domainFilterChips">
-                    <span class="text-[11px] font-bold text-gray-400 mr-0.5"><i class="fa-solid fa-at mr-1"></i>นามสกุลเมล</span>
-                    <button type="button" data-domain-filter="__all" onclick="setDomainFilter('__all')" class="app-chip active">ทุกนามสกุล <span><?php echo count($imap_emails_all); ?></span></button>
-                    <?php foreach ($domain_counts as $dm => $cnt): ?>
-                    <button type="button" data-domain-filter="<?php echo htmlspecialchars($dm); ?>" onclick="setDomainFilter('<?php echo htmlspecialchars($dm); ?>')" class="app-chip">@<?php echo htmlspecialchars($dm); ?> <span><?php echo $cnt; ?></span></button>
-                    <?php endforeach; ?>
-                </div>
-                <?php endif; ?>
 
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-rose-50/50 border border-rose-100 rounded-2xl px-4 py-2.5">
                     <p class="text-xs font-bold text-gray-700 flex items-center gap-2"><span class="bg-red-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded">NETFLIX</span> รหัส 6 หลัก (ทุกอีเมล)</p>
