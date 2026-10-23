@@ -292,6 +292,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    // --- Action: ตั้งรหัสผ่าน 4 หลักเดียวกันให้หลายอีเมลพร้อมกัน (ติ๊กเลือกในหน้าแอดมิน) ---
+    if ($action === 'set_email_pin_bulk') {
+        header('Content-Type: application/json');
+        $ids = isset($_POST['ids']) && is_array($_POST['ids']) ? array_map('strval', $_POST['ids']) : [];
+        $pin = isset($_POST['pin']) ? preg_replace('/\D/', '', $_POST['pin']) : '';
+        if (strlen($pin) !== 4 || empty($ids)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'กรุณาเลือกอีเมล และใส่รหัสตัวเลข 4 หลักค่ะ']);
+            exit;
+        }
+        $n = 0;
+        foreach (($config['imap_emails'] ?? []) as $idx => $item) {
+            if (in_array((string)($item['id'] ?? ''), $ids, true)) {
+                $config['imap_emails'][$idx]['access_pin'] = $pin;
+                $n++;
+            }
+        }
+        if ($n > 0 && save_config($config)) {
+            echo json_encode(['success' => true, 'message' => "ตั้งรหัส $pin ให้ $n อีเมลเรียบร้อยแล้ว"]);
+        } else {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'บันทึกไม่สำเร็จ']);
+        }
+        exit;
+    }
+
     // --- Action: ผูกอีเมลกับแอป (ใช้แยกหมวดอีเมล เช่น ดูเฉพาะอีเมล Netflix) ---
     if ($action === 'set_email_app') {
         header('Content-Type: application/json');
@@ -690,6 +716,7 @@ function render_admin_email_card($item, $app_options, $is_ms) {
          data-email="<?php echo htmlspecialchars(strtolower($item['email'] ?? '')); ?>" data-app="<?php echo htmlspecialchars($app_id); ?>" data-domain="<?php echo htmlspecialchars(strtolower(substr(strrchr($item['email'] ?? '', '@') ?: '', 1))); ?>" data-haspin="<?php echo $pin !== '' ? '1' : '0'; ?>">
         <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2 min-w-0">
+                <input type="checkbox" class="email-select w-4 h-4 accent-pink-500 cursor-pointer flex-shrink-0" value="<?php echo $id; ?>" onchange="updateBulkBar()" title="เลือกเพื่อตั้งรหัสพร้อมกันหลายอีเมล">
                 <i class="<?php echo $icon; ?>"></i>
                 <span class="text-xs font-bold text-gray-800 truncate" title="<?php echo $email; ?>"><?php echo $email; ?></span>
                 <?php if ($prov_label !== ''): ?><span class="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 flex-shrink-0"><?php echo $prov_label; ?></span><?php endif; ?>
@@ -1603,6 +1630,20 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
         </div>
     </div>
 
+    <!-- แถบตั้งรหัสหลายอีเมลพร้อมกัน (โผล่เมื่อมีการติ๊กเลือก) -->
+    <div id="bulkBar" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-2xl bg-white border border-pink-200 shadow-xl rounded-2xl p-3 flex flex-wrap items-center gap-2">
+        <span class="text-xs font-bold text-pink-700"><i class="fa-solid fa-square-check mr-1"></i>เลือกแล้ว <span id="bulkCount">0</span> อีเมล</span>
+        <button type="button" onclick="selectAllVisible()" class="text-[11px] font-bold text-purple-600 underline">เลือกทั้งหมดที่แสดง</button>
+        <div class="flex items-center gap-1.5 ml-auto">
+            <input type="text" id="bulkPinInput" inputmode="numeric" maxlength="4" placeholder="รหัส 4 หลัก"
+                   oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)"
+                   class="w-28 px-3 py-2 rounded-xl border border-pink-200 bg-pink-50/50 text-sm font-bold tracking-[0.3em] text-center text-pink-700 outline-none focus:ring-2 focus:ring-pink-300">
+            <button type="button" onclick="document.getElementById('bulkPinInput').value=String(Math.floor(Math.random()*10000)).padStart(4,'0')" title="สุ่มรหัส" class="w-9 h-9 rounded-xl bg-gray-50 border border-gray-200 text-gray-500"><i class="fa-solid fa-shuffle"></i></button>
+            <button type="button" onclick="applyBulkPin()" class="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl">ตั้งรหัสให้ทั้งหมด</button>
+            <button type="button" onclick="clearBulkSelection()" title="ยกเลิกการเลือก" class="w-9 h-9 rounded-xl text-gray-400 hover:bg-gray-100"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+    </div>
+
     <!-- MODAL: ตั้งรหัสผ่าน 4 หลักของลูกค้า -->
     <div id="pinModal" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-xs rounded-3xl shadow-xl border border-pink-100 p-6 space-y-4 text-center">
@@ -1828,6 +1869,50 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
                     closePinModal();
                     showNotification(data.message);
                     setTimeout(() => window.location.reload(), 600);
+                } else {
+                    alert(data.message || 'บันทึกไม่สำเร็จ');
+                }
+            } catch (err) {
+                alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+            }
+        }
+
+        // --- ติ๊กเลือกหลายอีเมลแล้วตั้งรหัสเดียวกัน ---
+        function selectedEmailIds() {
+            return [...document.querySelectorAll('.email-select:checked')].map(c => c.value);
+        }
+        function updateBulkBar() {
+            const n = selectedEmailIds().length;
+            document.getElementById('bulkCount').innerText = n;
+            document.getElementById('bulkBar').classList.toggle('hidden', n === 0);
+        }
+        function selectAllVisible() {
+            document.querySelectorAll('.email-card, .ms-email-card').forEach(card => {
+                if (!card.classList.contains('hidden')) {
+                    const cb = card.querySelector('.email-select');
+                    if (cb) cb.checked = true;
+                }
+            });
+            updateBulkBar();
+        }
+        function clearBulkSelection() {
+            document.querySelectorAll('.email-select').forEach(c => c.checked = false);
+            updateBulkBar();
+        }
+        async function applyBulkPin() {
+            const ids = selectedEmailIds();
+            const pin = document.getElementById('bulkPinInput').value.trim();
+            if (!/^\d{4}$/.test(pin)) { alert('กรุณาใส่รหัสตัวเลข 4 หลักค่ะ'); return; }
+            if (!confirm(`ตั้งรหัส ${pin} ให้ ${ids.length} อีเมลที่เลือก?`)) return;
+            const formData = new FormData();
+            ids.forEach(id => formData.append('ids[]', id));
+            formData.append('pin', pin);
+            try {
+                const res = await fetch('admin.php?action=set_email_pin_bulk', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    showNotification(data.message);
+                    setTimeout(() => window.location.reload(), 700);
                 } else {
                     alert(data.message || 'บันทึกไม่สำเร็จ');
                 }
