@@ -135,7 +135,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
     <div class="scene" aria-hidden="true"></div>
 
     <main class="relative z-10 min-h-screen flex flex-col items-center justify-center px-4 py-8 md:py-10 pb-10">
-    <div class="w-full max-w-lg flex flex-col gap-6">
+    <div class="w-full max-w-xl flex flex-col gap-6">
 
         <!-- Header & Shop Logo -->
         <div class="text-center space-y-3">
@@ -160,7 +160,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
         <div id="appSelectionScreen" class="glass rounded-[2rem] p-5 md:p-7 space-y-5 transition-all duration-500">
             <h2 class="text-center font-cute text-lg md:text-2xl font-bold text-candy-700">เลือกแอปที่ต้องการรับรหัสยืนยัน</h2>
 
-            <div class="flex flex-wrap justify-center gap-3 md:gap-5">
+            <div class="flex flex-wrap justify-center gap-2.5 md:gap-4">
                 <?php
                 $apps_list = isset($config['apps']) && is_array($config['apps']) ? $config['apps'] : [];
                 $apps_list = array_values(array_filter($apps_list, function ($a) { return !isset($a['active']) || $a['active']; }));
@@ -187,7 +187,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
                 ?>
                 <!-- ปุ่มแอปเป็นรูปเต็มช่อง ไม่มีกรอบ ไม่มีชื่อ (รูปตั้งในหน้าแอดมิน > แอปพลิเคชัน) — ถ้ายังไม่มีรูปจะโชว์ชื่อแอปแทน -->
                 <button type="button" onclick="selectApp(<?php echo $app_js; ?>)" aria-label="<?php echo $app_name; ?>" title="<?php echo $app_name; ?>"
-                        class="app-btn w-[30%] max-w-[150px] aspect-square rounded-[1.6rem] overflow-hidden flex items-center justify-center <?php echo empty($logo) ? 'bg-candy-50' : ''; ?>">
+                        class="app-btn w-[31%] max-w-[175px] aspect-square rounded-[1.8rem] overflow-hidden flex items-center justify-center <?php echo empty($logo) ? 'bg-candy-50' : ''; ?>">
                     <?php if (!empty($logo)): ?>
                     <img src="<?php echo $logo; ?>" alt="<?php echo $app_name; ?>" class="w-full h-full object-contain">
                     <?php else: ?>
