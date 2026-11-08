@@ -10,6 +10,11 @@ try {
 
 // โลโก้ร้าน Monali (ถ้าไม่มีไฟล์ ใช้โลโก้ที่ตั้งไว้ในหน้า Admin แทน)
 $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_logo.jpg' : ($config['logo_path'] ?? '/static/logo.jpg');
+
+// เพลงพื้นหลัง (YouTube) + ตัวโหลด ที่ตั้งค่าในหน้า Admin
+$bg_music   = parse_youtube_url($config['bg_music_url'] ?? '');
+$loader_img = (string)($config['loader_image'] ?? '');
+$loader_txt = trim((string)($config['loader_text'] ?? '')) !== '' ? $config['loader_text'] : 'น้องกำลังไปหยิบรหัสมาให้นะคะ...';
 ?>
 <!DOCTYPE html>
 <html lang="th">
@@ -127,6 +132,17 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
         .spinner { animation: spin 1s linear infinite !important; }
         .app-btn:hover, .app-btn:active, .btn-candy:hover, .btn-candy:active,
         .scale-95, .scale-100, [class*="active:scale"]:active, .group:hover [class*="translate-x"] { transform: none !important; }
+
+        /* ปุ่มเปิด/ปิดเพลงพื้นหลัง */
+        #musicBtn {
+            position: fixed; right: 16px; bottom: 16px; z-index: 50;
+            width: 3rem; height: 3rem; border-radius: 999px; border: 2px solid #fde2ef;
+            background: rgba(255,255,255,.92); color: #ec6aa8; font-size: 1.1rem;
+            box-shadow: 0 6px 18px rgba(236,106,168,.25); display: flex; align-items: center; justify-content: center;
+        }
+        #musicBtn.playing { background: #ec6aa8; color: #fff; border-color: #f687b8; }
+        #musicBtn.playing i { animation: spin 3s linear infinite !important; }
+        #ytMusicHolder { position: fixed; left: -9999px; bottom: 0; width: 200px; height: 200px; opacity: 0; pointer-events: none; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -249,8 +265,12 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
                 </div>
 
                 <div id="statusBox" class="hidden flex flex-col items-center justify-center py-3 space-y-2">
+                    <?php if ($loader_img !== ''): ?>
+                    <img src="<?php echo htmlspecialchars($loader_img); ?>" alt="กำลังโหลด" class="w-44 h-44 md:w-52 md:h-52 object-contain select-none pointer-events-none">
+                    <?php else: ?>
                     <div class="spinner"></div>
-                    <p class="text-xs md:text-sm text-candy-500 animate-pulse">น้องกำลังไปหยิบรหัสมาให้นะคะ...</p>
+                    <?php endif; ?>
+                    <p class="text-xs md:text-sm text-candy-500 animate-pulse"><?php echo htmlspecialchars($loader_txt); ?></p>
                 </div>
 
                 <div id="errorBox" class="hidden bg-rose-50 border-2 border-rose-100 text-rose-700 px-4 py-3 rounded-2xl text-center text-xs md:text-sm space-y-1">
@@ -652,6 +672,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
             if (getPin().length !== 4) { showError('กรุณากรอกรหัสผ่าน 4 หลักให้ครบค่ะ'); shakePin(); focusPin(0); return; }
 
             searchBtn.disabled = true;
+            const loaderStart = Date.now();
             statusBox.classList.remove('hidden');
             resultBox.classList.add('hidden');
             resultBox.classList.remove('scale-100', 'opacity-100');
@@ -700,7 +721,7 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
                         resultBox.classList.add('scale-100', 'opacity-100');
                         resultBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }, 50);
-                }, 400);
+                }, <?php echo $loader_img !== '' ? 'Math.max(400, 1500 - (Date.now() - loaderStart))' : '400'; ?>); // ให้ตัวโหลดที่ตั้งไว้โชว์ครบอย่างน้อย ~1.5 วินาที
 
             } catch (error) {
                 showError(error.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย');
@@ -715,5 +736,79 @@ $shop_logo = file_exists(__DIR__ . '/static/monali_logo.jpg') ? '/static/monali_
             document.getElementById('errorBox').classList.remove('hidden');
         }
     </script>
+
+    <?php if ($bg_music): ?>
+    <!-- ========== เพลงพื้นหลังจาก YouTube ========== -->
+    <div id="ytMusicHolder" aria-hidden="true"><div id="ytMusicPlayer"></div></div>
+    <button type="button" id="musicBtn" title="เปิด/ปิดเพลง" aria-label="เปิด/ปิดเพลง"><i class="fa-solid fa-music"></i></button>
+    <script>
+        (function () {
+            const MUSIC = <?php echo json_encode($bg_music); ?>;
+            const PREF_KEY = 'otp_music_off';
+            const btn = document.getElementById('musicBtn');
+            let player = null, ready = false, wantPlay = false;
+
+            function userTurnedOff() { try { return localStorage.getItem(PREF_KEY) === '1'; } catch (e) { return false; } }
+            function rememberOff(off) { try { off ? localStorage.setItem(PREF_KEY, '1') : localStorage.removeItem(PREF_KEY); } catch (e) {} }
+            function setIcon(playing) {
+                btn.classList.toggle('playing', playing);
+                btn.innerHTML = playing ? '<i class="fa-solid fa-music"></i>' : '<i class="fa-solid fa-volume-xmark"></i>';
+            }
+            function play() {
+                wantPlay = true;
+                if (!ready) return;
+                player.unMute();
+                player.setVolume(60);
+                player.playVideo();
+            }
+            function pause() {
+                wantPlay = false;
+                if (ready) player.pauseVideo();
+                setIcon(false);
+            }
+
+            // โหลด YouTube IFrame API
+            const tag = document.createElement('script');
+            tag.src = 'https://www.youtube.com/iframe_api';
+            document.head.appendChild(tag);
+
+            window.onYouTubeIframeAPIReady = function () {
+                const vars = { autoplay: 0, controls: 0, disablekb: 1, playsinline: 1, rel: 0, start: MUSIC.start || 0 };
+                if (MUSIC.list) { vars.listType = 'playlist'; vars.list = MUSIC.list; vars.loop = 1; }
+                player = new YT.Player('ytMusicPlayer', {
+                    width: 200, height: 200,
+                    videoId: MUSIC.video || undefined,
+                    playerVars: vars,
+                    events: {
+                        onReady: function () { ready = true; if (wantPlay) play(); },
+                        onStateChange: function (e) {
+                            if (e.data === YT.PlayerState.PLAYING) setIcon(true);
+                            else if (e.data === YT.PlayerState.PAUSED) setIcon(false);
+                            else if (e.data === YT.PlayerState.ENDED) {
+                                // เล่นวนซ้ำ
+                                if (MUSIC.list) { player.playVideoAt(0); } else { player.seekTo(MUSIC.start || 0, true); player.playVideo(); }
+                            }
+                        },
+                        onError: function () { btn.style.display = 'none'; }
+                    }
+                });
+            };
+
+            // เบราว์เซอร์บล็อกเสียงอัตโนมัติ -> เริ่มเพลงเมื่อลูกค้าแตะหน้าเว็บครั้งแรก
+            function firstInteraction(e) {
+                ['pointerdown', 'touchstart', 'keydown'].forEach(ev => document.removeEventListener(ev, firstInteraction, true));
+                if (btn.contains(e.target)) return; // ให้ปุ่มเพลงจัดการเอง
+                if (!userTurnedOff()) play();
+            }
+            ['pointerdown', 'touchstart', 'keydown'].forEach(ev => document.addEventListener(ev, firstInteraction, true));
+
+            btn.addEventListener('click', function () {
+                if (btn.classList.contains('playing')) { pause(); rememberOff(true); }
+                else { rememberOff(false); play(); }
+            });
+            setIcon(false);
+        })();
+    </script>
+    <?php endif; ?>
 </body>
 </html>

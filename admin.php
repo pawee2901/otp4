@@ -501,6 +501,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
 
+    // --- Action: บันทึกเพลงพื้นหลัง (ลิงก์ YouTube) + ข้อความตัวโหลด ---
+    if ($action === 'save_media') {
+        header('Content-Type: application/json');
+        $music = isset($_POST['bg_music_url']) ? trim($_POST['bg_music_url']) : '';
+        if ($music !== '' && parse_youtube_url($music) === null) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'ลิงก์ YouTube ไม่ถูกต้อง (ตัวอย่าง: https://www.youtube.com/watch?v=xxxxxxxxxxx หรือ https://youtu.be/xxxxxxxxxxx)']);
+            exit;
+        }
+        $config['bg_music_url'] = mb_substr($music, 0, 500);
+        if (isset($_POST['loader_text'])) $config['loader_text'] = mb_substr(trim($_POST['loader_text']), 0, 255);
+        if (isset($_POST['loader_image']) && in_array($_POST['loader_image'], ['', '/static/loader_dog.gif'], true)) {
+            $config['loader_image'] = $_POST['loader_image']; // '' = ใช้วงกลมหมุนเดิม, หรือรูปตัวอย่าง
+        }
+        if (save_config($config)) {
+            echo json_encode(['success' => true, 'message' => 'บันทึกเรียบร้อย', 'loader_image' => $config['loader_image'] ?? '']);
+        } else {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'message' => 'บันทึกไม่สำเร็จ']);
+        }
+        exit;
+    }
+
+    // --- Action: อัปโหลดรูป/GIF ตัวโหลด (แสดงตอนลูกค้ากดค้นหารหัส) ---
+    if ($action === 'upload_loader') {
+        header('Content-Type: application/json');
+        $file = $_FILES['loader'] ?? null;
+        if (!$file || $file['error'] !== UPLOAD_ERR_OK) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'อัปโหลดล้มเหลว (ไฟล์ต้องไม่เกิน 1.5MB)']);
+            exit;
+        }
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $mime = ['png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif', 'webp' => 'image/webp'][$ext] ?? null;
+        if (!$mime || !is_uploaded_file($file['tmp_name']) || @getimagesize($file['tmp_name']) === false) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'ไฟล์ต้องเป็นรูปภาพ GIF / PNG / JPG / WEBP เท่านั้น']);
+            exit;
+        }
+        if (filesize($file['tmp_name']) > 1536 * 1024) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'ไฟล์ใหญ่เกินไป (ต้องไม่เกิน 1.5MB)']);
+            exit;
+        }
+        $config['loader_image'] = 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($file['tmp_name']));
+        if (save_config($config)) {
+            echo json_encode(['success' => true, 'message' => 'อัปโหลดตัวโหลดสำเร็จ', 'loader_image' => $config['loader_image']]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'message' => 'บันทึกไม่สำเร็จ']);
+        }
+        exit;
+    }
+
     // --- Action: อัปโหลดโลโก้ร้าน ---
     if ($action === 'upload_logo') {
         header('Content-Type: application/json');
@@ -1000,6 +1054,15 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
                     <button type="button" data-app-filter="__nopin" onclick="setAppFilter('__nopin')" class="app-chip warn">ยังไม่ตั้งรหัส <span><?php echo $no_pin_count; ?></span></button>
                 </div>
 
+                <?php if (count($domain_counts) > 1): ?>
+                <div class="flex flex-wrap items-center gap-1.5" id="domainFilterChips">
+                    <span class="text-[11px] font-bold text-gray-400 mr-0.5"><i class="fa-solid fa-at mr-1"></i>นามสกุลเมล</span>
+                    <button type="button" data-domain-filter="__all" onclick="setDomainFilter('__all')" class="app-chip active">ทุกนามสกุล <span><?php echo count($imap_emails_all); ?></span></button>
+                    <?php foreach ($domain_counts as $dm => $cnt): ?>
+                    <button type="button" data-domain-filter="<?php echo htmlspecialchars($dm); ?>" onclick="setDomainFilter('<?php echo htmlspecialchars($dm); ?>')" class="app-chip">@<?php echo htmlspecialchars($dm); ?> <span><?php echo $cnt; ?></span></button>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
 
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-rose-50/50 border border-rose-100 rounded-2xl px-4 py-2.5">
                     <p class="text-xs font-bold text-gray-700 flex items-center gap-2"><span class="bg-red-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded">NETFLIX</span> รหัส 6 หลัก (ทุกอีเมล)</p>
@@ -1227,6 +1290,81 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
                             <i class="fa-solid fa-upload mr-1"></i> นำเข้าข้อมูล
                         </button>
                     </div>
+                </div>
+
+                <!-- เพลงพื้นหลัง + ตัวโหลด -->
+                <?php
+                    $cur_loader = $config['loader_image'] ?? '';
+                    $cur_music_info = parse_youtube_url($config['bg_music_url'] ?? '');
+                ?>
+                <div class="main-card rounded-3xl border border-gray-100 p-5 md:p-7 space-y-6">
+                    <div class="border-b border-gray-100 pb-3 flex items-center gap-2 text-sm font-extrabold text-gray-900">
+                        <i class="fa-solid fa-music text-purple-600"></i>
+                        <span>เพลงพื้นหลังเว็บ &amp; ตัวโหลด</span>
+                    </div>
+
+                    <!-- เพลงจาก YouTube -->
+                    <div class="space-y-2">
+                        <label class="text-xs font-bold text-gray-600 pl-1"><i class="fa-brands fa-youtube text-rose-500 mr-1"></i>ลิงก์เพลงจาก YouTube (เว้นว่าง = ไม่เปิดเพลง)</label>
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <input type="text" id="bgMusicInput" value="<?php echo htmlspecialchars($config['bg_music_url'] ?? ''); ?>"
+                                   placeholder="https://www.youtube.com/watch?v=... หรือ https://youtu.be/..."
+                                   oninput="previewMusic()"
+                                   class="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-xs focus:ring-2 focus:ring-purple-600 outline-none">
+                            <button type="button" onclick="document.getElementById('bgMusicInput').value='';previewMusic();" class="bg-white hover:bg-gray-50 text-gray-600 border border-gray-200 font-bold text-xs px-3 py-2.5 rounded-xl">
+                                <i class="fa-solid fa-xmark mr-1"></i>ล้าง
+                            </button>
+                        </div>
+                        <p class="text-[11px] text-gray-400 pl-1 leading-relaxed">
+                            คัดลอกลิงก์จากปุ่ม "แชร์" ใน YouTube มาวางได้เลย (รองรับลิงก์วิดีโอ, Shorts, YouTube Music และเพลย์ลิสต์) เพลงจะเล่นวนซ้ำ ·
+                            เบราว์เซอร์ไม่อนุญาตให้เปิดเสียงเองอัตโนมัติ เพลงจะเริ่มเมื่อลูกค้าแตะหน้าเว็บครั้งแรก และมีปุ่มเปิด/ปิดเพลงที่มุมจอ
+                        </p>
+                        <div id="musicPreview" class="<?php echo $cur_music_info ? '' : 'hidden'; ?> rounded-2xl overflow-hidden border border-gray-100 bg-black aspect-video max-w-sm">
+                            <?php if ($cur_music_info): ?>
+                            <iframe class="w-full h-full" src="https://www.youtube.com/embed/<?php echo htmlspecialchars($cur_music_info['video'] ?: 'videoseries'); ?>?<?php echo $cur_music_info['list'] ? 'list=' . htmlspecialchars($cur_music_info['list']) . '&' : ''; ?>start=<?php echo (int)$cur_music_info['start']; ?>" allow="encrypted-media" allowfullscreen></iframe>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- ตัวโหลด -->
+                    <div class="space-y-3 border-t border-gray-100 pt-5">
+                        <p class="text-xs font-bold text-gray-600 pl-1"><i class="fa-solid fa-spinner text-purple-500 mr-1"></i>ตัวโหลดตอนลูกค้ากดค้นหารหัส</p>
+                        <div class="flex flex-col sm:flex-row sm:items-center gap-4 bg-gray-50/60 p-4 rounded-2xl border border-gray-100">
+                            <div id="loaderPreviewBox" class="w-32 h-32 rounded-2xl bg-white border border-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0 self-center">
+                                <?php if ($cur_loader !== ''): ?>
+                                <img src="<?php echo htmlspecialchars($cur_loader); ?>" class="w-full h-full object-contain" alt="loader">
+                                <?php else: ?>
+                                <i class="fa-solid fa-circle-notch fa-spin text-3xl text-pink-400"></i>
+                                <?php endif; ?>
+                            </div>
+                            <div class="flex-1 space-y-2">
+                                <p class="text-[11px] text-gray-500">อัปโหลดรูปเคลื่อนไหว <b>GIF</b> (หรือ PNG / JPG / WEBP) ขนาดไม่เกิน 1.5MB — ถ้าไม่ใส่จะใช้วงกลมหมุนแบบเดิม</p>
+                                <div class="flex flex-wrap gap-2">
+                                    <label for="loaderFileInput" class="inline-flex items-center gap-1.5 bg-white hover:bg-gray-100 text-gray-700 font-bold text-xs px-3 py-1.5 rounded-xl border border-gray-200 cursor-pointer shadow-xs">
+                                        <i class="fa-solid fa-cloud-arrow-up"></i><span>อัปโหลดตัวโหลด</span>
+                                    </label>
+                                    <input type="file" id="loaderFileInput" accept="image/gif,image/png,image/jpeg,image/webp" class="hidden" onchange="uploadLoaderFile()">
+                                    <button type="button" onclick="setLoaderPreset('/static/loader_dog.gif')" class="inline-flex items-center gap-1.5 bg-white hover:bg-gray-100 text-gray-700 font-bold text-xs px-3 py-1.5 rounded-xl border border-gray-200 shadow-xs">
+                                        <i class="fa-solid fa-dog"></i><span>ใช้น้องหมาตัวอย่าง</span>
+                                    </button>
+                                    <button type="button" onclick="setLoaderPreset('')" class="inline-flex items-center gap-1.5 bg-white hover:bg-rose-50 text-rose-500 font-bold text-xs px-3 py-1.5 rounded-xl border border-gray-200 shadow-xs">
+                                        <i class="fa-regular fa-trash-can"></i><span>กลับไปใช้แบบเดิม</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-bold text-gray-600 pl-1">ข้อความใต้ตัวโหลด (เว้นว่าง = ใช้ข้อความเดิม)</label>
+                            <input type="text" id="loaderTextInput" maxlength="255" value="<?php echo htmlspecialchars($config['loader_text'] ?? ''); ?>"
+                                   placeholder="น้องกำลังไปหยิบรหัสมาให้นะคะ..."
+                                   class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs focus:ring-2 focus:ring-purple-600 outline-none">
+                        </div>
+                    </div>
+
+                    <button type="button" onclick="saveMediaSettings()" id="saveMediaBtn"
+                            class="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm inline-flex items-center gap-1.5">
+                        <i class="fa-solid fa-floppy-disk"></i><span>บันทึกเพลง &amp; ข้อความตัวโหลด</span>
+                    </button>
                 </div>
 
                 <div class="main-card rounded-3xl border border-gray-100 p-5 md:p-7 space-y-6">
@@ -2054,6 +2192,98 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
                 }
             } catch (err) {
                 alert('เกิดข้อผิดพลาดในการลบรายการ');
+            }
+        }
+
+        // --- เพลงพื้นหลัง & ตัวโหลด ---
+        function parseYouTube(url) {
+            url = (url || '').trim();
+            if (!url) return null;
+            if (/^[A-Za-z0-9_-]{11}$/.test(url)) return { video: url, list: '', start: 0 };
+            let u;
+            try { u = new URL(/^https?:\/\//i.test(url) ? url : 'https://' + url); } catch (e) { return null; }
+            const host = u.hostname.toLowerCase();
+            if (!/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/.test(host)) return null;
+            let video = '';
+            if (/(^|\.)youtu\.be$/.test(host)) video = u.pathname.replace(/^\/+/, '');
+            else if (u.searchParams.get('v')) video = u.searchParams.get('v');
+            else { const m = u.pathname.match(/\/(?:shorts|embed|live|v)\/([A-Za-z0-9_-]{11})/); if (m) video = m[1]; }
+            const vm = video.match(/^[A-Za-z0-9_-]{11}/); video = vm ? vm[0] : '';
+            const list = /^[A-Za-z0-9_-]+$/.test(u.searchParams.get('list') || '') ? u.searchParams.get('list') : '';
+            if (!video && !list) return null;
+            let start = 0;
+            const t = u.searchParams.get('t') || u.searchParams.get('start') || '';
+            const tm = t.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/);
+            if (tm) start = (+tm[1] || 0) * 3600 + (+tm[2] || 0) * 60 + (+tm[3] || 0);
+            return { video, list, start };
+        }
+
+        let musicPreviewTimer = null;
+        function previewMusic() {
+            clearTimeout(musicPreviewTimer);
+            musicPreviewTimer = setTimeout(() => {
+                const box = document.getElementById('musicPreview');
+                const info = parseYouTube(document.getElementById('bgMusicInput').value);
+                if (!info) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+                const src = `https://www.youtube.com/embed/${info.video || 'videoseries'}?${info.list ? 'list=' + info.list + '&' : ''}start=${info.start}`;
+                box.innerHTML = `<iframe class="w-full h-full" src="${src}" allow="encrypted-media" allowfullscreen></iframe>`;
+                box.classList.remove('hidden');
+            }, 400);
+        }
+
+        function renderLoaderPreview(src) {
+            const box = document.getElementById('loaderPreviewBox');
+            box.innerHTML = src
+                ? `<img src="${src}" class="w-full h-full object-contain" alt="loader">`
+                : '<i class="fa-solid fa-circle-notch fa-spin text-3xl text-pink-400"></i>';
+        }
+
+        async function saveMediaSettings(extra = {}) {
+            const url = document.getElementById('bgMusicInput').value.trim();
+            if (url && !parseYouTube(url)) { alert('ลิงก์ YouTube ไม่ถูกต้อง'); return; }
+            const formData = new FormData();
+            formData.append('bg_music_url', url);
+            formData.append('loader_text', document.getElementById('loaderTextInput').value.trim());
+            Object.entries(extra).forEach(([k, v]) => formData.append(k, v));
+            try {
+                const res = await fetch('admin.php?action=save_media', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('บันทึกเพลงและตัวโหลดเรียบร้อยแล้วค่ะ');
+                    if ('loader_image' in extra) renderLoaderPreview(data.loader_image);
+                } else {
+                    alert(data.message || 'บันทึกไม่สำเร็จ');
+                }
+            } catch (err) {
+                alert('เกิดความขัดข้องในการบันทึกข้อมูล');
+            }
+        }
+
+        function setLoaderPreset(path) {
+            if (path === '' && !confirm('ลบตัวโหลดที่ตั้งไว้ แล้วกลับไปใช้วงกลมหมุนแบบเดิม?')) return;
+            saveMediaSettings({ loader_image: path });
+        }
+
+        async function uploadLoaderFile() {
+            const input = document.getElementById('loaderFileInput');
+            const file = input.files[0];
+            if (!file) return;
+            if (file.size > 1536 * 1024) { alert('ไฟล์ใหญ่เกินไป (ต้องไม่เกิน 1.5MB)'); input.value = ''; return; }
+            const formData = new FormData();
+            formData.append('loader', file);
+            try {
+                const res = await fetch('admin.php?action=upload_loader', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('อัปโหลดตัวโหลดสำเร็จ!');
+                    renderLoaderPreview(data.loader_image);
+                } else {
+                    alert(data.message || 'อัปโหลดไม่สำเร็จ');
+                }
+            } catch (err) {
+                alert('เกิดข้อผิดพลาดเครือข่ายระหว่างอัปโหลด');
+            } finally {
+                input.value = '';
             }
         }
 

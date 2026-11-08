@@ -101,6 +101,12 @@ function ensure_schema($pdo) {
                 $pdo->exec("ALTER TABLE `$t` MODIFY `$c` $def");
             }
         }
+        // เพลงพื้นหลัง (ลิงก์ YouTube) + ตัวโหลดตอนค้นหารหัส (รูป/GIF เก็บเป็น data URI) + ข้อความใต้ตัวโหลด
+        foreach ([['bg_music_url', 'VARCHAR(500) NULL'], ['loader_image', 'MEDIUMTEXT NULL'], ['loader_text', 'VARCHAR(255) NULL']] as [$c, $def]) {
+            if (!$pdo->query("SHOW COLUMNS FROM settings LIKE '$c'")->fetch()) {
+                $pdo->exec("ALTER TABLE settings ADD COLUMN `$c` $def");
+            }
+        }
         $pdo->exec("CREATE TABLE IF NOT EXISTS pin_attempts (
             attempt_key  VARCHAR(191) NOT NULL PRIMARY KEY,
             fails        INT NOT NULL DEFAULT 0,
@@ -137,6 +143,48 @@ function imap_column_exists($pdo, $col) {
     return $cache[$col];
 }
 
+function settings_column_exists($pdo, $col) {
+    static $cache = [];
+    if (!array_key_exists($col, $cache)) {
+        try {
+            $cache[$col] = (bool)$pdo->query("SHOW COLUMNS FROM settings LIKE " . $pdo->quote($col))->fetch();
+        } catch (Throwable $e) {
+            $cache[$col] = false;
+        }
+    }
+    return $cache[$col];
+}
+
+// ดึงรหัสวิดีโอ/เพลย์ลิสต์ จากลิงก์ YouTube ทุกรูปแบบ (watch?v=, youtu.be/, shorts/, embed/, music.youtube.com, &list=)
+function parse_youtube_url($url) {
+    $url = trim((string)$url);
+    if ($url === '') return null;
+    if (preg_match('/^[A-Za-z0-9_-]{11}$/', $url)) return ['video' => $url, 'list' => '', 'start' => 0];
+    $parts = parse_url(preg_match('#^https?://#i', $url) ? $url : 'https://' . $url);
+    $host = strtolower($parts['host'] ?? '');
+    if (!preg_match('/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/', $host)) return null;
+    parse_str($parts['query'] ?? '', $q);
+    $video = '';
+    if ($host === 'youtu.be' || substr($host, -9) === '.youtu.be') {
+        $video = trim($parts['path'] ?? '', '/');
+    } elseif (!empty($q['v'])) {
+        $video = $q['v'];
+    } elseif (preg_match('#/(?:shorts|embed|live|v)/([A-Za-z0-9_-]{11})#', $parts['path'] ?? '', $m)) {
+        $video = $m[1];
+    }
+    $video = preg_match('/^[A-Za-z0-9_-]{11}/', $video, $m) ? $m[0] : '';
+    $list = (!empty($q['list']) && preg_match('/^[A-Za-z0-9_-]+$/', $q['list'])) ? $q['list'] : '';
+    if ($video === '' && $list === '') return null;
+    $start = 0;
+    if (!empty($q['t']) || !empty($q['start'])) {
+        $t = (string)($q['t'] ?? $q['start']);
+        if (preg_match('/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/', $t, $tm)) {
+            $start = (int)($tm[1] ?? 0) * 3600 + (int)($tm[2] ?? 0) * 60 + (int)($tm[3] ?? 0);
+        }
+    }
+    return ['video' => $video, 'list' => $list, 'start' => $start];
+}
+
 function load_config() {
     if (OTP_LOCAL_MODE) return local_load_config();
     $pdo = db_connect();
@@ -161,6 +209,9 @@ function load_config() {
         'admin_password'   => $settings['admin_password'],
         'api_key_1'        => $settings['api_key_1'],
         'api_key_2'        => $settings['api_key_2'],
+        'bg_music_url'     => (string)($settings['bg_music_url'] ?? ''),
+        'loader_image'     => (string)($settings['loader_image'] ?? ''),
+        'loader_text'      => (string)($settings['loader_text'] ?? ''),
     ];
 
     if (!empty($settings['ms_client_id']) || !empty($settings['ms_client_secret'])) {
@@ -290,6 +341,14 @@ function save_config($config) {
             ':ms_client_id'     => $config['microsoft_oauth']['client_id'] ?? null,
             ':ms_client_secret' => $config['microsoft_oauth']['client_secret'] ?? null,
         ]);
+
+        // เพลงพื้นหลัง / ตัวโหลด — แยกอัปเดต และข้ามคอลัมน์ที่ยังไม่มี (กรณีโฮสต์ไม่ให้สิทธิ์ ALTER TABLE)
+        foreach (['bg_music_url', 'loader_image', 'loader_text'] as $c) {
+            if (settings_column_exists($pdo, $c)) {
+                $v = isset($config[$c]) && $config[$c] !== '' ? (string)$config[$c] : null;
+                $pdo->prepare("UPDATE settings SET `$c` = ? WHERE id = 1")->execute([$v]);
+            }
+        }
 
         __config_store_sync_table($pdo, 'apps', $config['apps'] ?? [], function ($row, $i) {
             return [
