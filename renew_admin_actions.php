@@ -65,7 +65,7 @@ try {
             'settings' => [
                 'line_token_set' => $st['line_token'] !== '', 'line_secret_set' => $st['line_secret'] !== '',
                 'slip2go_secret_set' => $st['slip2go_secret'] !== '',
-                'line_oa_id' => $st['line_oa_id'], 'slip2go_url' => $st['slip2go_url'],
+                'line_oa_id' => $st['line_oa_id'], 'forward_webhook' => $st['forward_webhook'], 'slip2go_url' => $st['slip2go_url'],
                 'promptpay_id' => $st['promptpay_id'], 'pay_name' => $st['pay_name'],
                 'receiver_type' => $st['receiver_type'], 'receiver_account' => $st['receiver_account'],
                 'remind_days' => (int)$st['remind_days'], 'grace_days' => (int)$st['grace_days'],
@@ -188,13 +188,18 @@ try {
 
     // ---------- ตั้งค่า ----------
     if ($action === 'renew_settings_save') {
-        $plain = ['line_oa_id', 'slip2go_url', 'promptpay_id', 'pay_name', 'receiver_type', 'receiver_account'];
+        $plain = ['line_oa_id', 'forward_webhook', 'slip2go_url', 'promptpay_id', 'pay_name', 'receiver_type', 'receiver_account'];
         $secret = ['line_token', 'line_secret', 'slip2go_secret']; // เว้นว่าง = ไม่เปลี่ยน
         $nums = ['remind_days' => [0, 30], 'grace_days' => [0, 60], 'late_fee' => [0, 100000], 'removed_fee' => [0, 100000], 'fam_size' => [1, 100]];
         if (isset($_POST['promptpay_id'])) {
             $pp = preg_replace('/\D/', '', renew_post('promptpay_id'));
             if ($pp !== '' && !in_array(strlen($pp), [10, 13, 15], true)) renew_fail('พร้อมเพย์ต้องเป็นเบอร์มือถือ 10 หลัก / เลข 13 หลัก / e-Wallet 15 หลัก');
             $_POST['promptpay_id'] = $pp;
+        }
+        if (isset($_POST['forward_webhook']) && renew_post('forward_webhook') !== '') {
+            $fw = renew_post('forward_webhook');
+            if (!preg_match('#^https://#i', $fw)) renew_fail('ลิงก์ Webhook เดิมต้องขึ้นต้นด้วย https://');
+            if (stripos($fw, '/line_webhook.php') !== false && stripos($fw, (string)($_SERVER['HTTP_HOST'] ?? '#')) !== false) renew_fail('ห้ามใส่ Webhook ของเว็บนี้เอง (จะวนส่งไม่จบ) — ใส่ลิงก์ของ Slip2Go หรือบริการเดิม');
         }
         if (isset($_POST['slip2go_url']) && renew_post('slip2go_url') !== '' && !preg_match('#^https://#i', renew_post('slip2go_url'))) {
             renew_fail('Slip2Go API URL ต้องขึ้นต้นด้วย https://');

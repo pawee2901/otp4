@@ -9,6 +9,11 @@
 //   - กดปุ่มแพ็กเกจในการ์ด            → ส่ง QR พร้อมเพย์ยอดพอดี
 //   - ส่งรูปสลิป (มีรายการรอจ่าย)      → ตรวจ Slip2Go แล้วต่ออายุให้
 //   - แอดมินพิมพ์รหัสแอดมิน           → รับแจ้งเตือนของระบบทาง LINE
+//
+// ส่งต่อ (Forward): LINE OA ตั้ง Webhook ได้ช่องเดียว — ถ้าร้านใช้บริการอื่นใน OA เดียวกันอยู่แล้ว
+// (เช่น Slip2Go ตรวจสลิปในแชท) ใส่ลิงก์ Webhook เดิมไว้ในหน้าแอดมิน → เหตุการณ์ที่ระบบนี้ไม่ได้ใช้
+// จะถูกส่งต่อไปที่ลิงก์เดิมพร้อมลายเซ็นใหม่ บริการเดิมจึงทำงานต่อได้ตามปกติ
+// (สลิปของรายการต่อเมลที่รอจ่ายอยู่ ไม่ส่งต่อ — กันบริการเดิมตรวจสลิปซ้ำจนกลายเป็น "สลิปถูกใช้แล้ว")
 // =========================================================================
 error_reporting(0);
 ini_set('display_errors', '0');
@@ -31,15 +36,44 @@ http_response_code(200);
 header('Content-Type: application/json');
 
 $body = json_decode($raw, true);
+$forward = [];
 foreach (($body['events'] ?? []) as $ev) {
+    $used = false;
     try {
-        renew_handle_event($ev);
+        $used = renew_handle_event($ev);
     } catch (Throwable $e) {
         error_log('[line_webhook] ' . $e->getMessage());
     }
+    if (!$used) $forward[] = $ev;
 }
 echo '{}';
+renew_forward_events($body, $forward, $raw);
 exit;
+
+// ส่งเหตุการณ์ที่ระบบนี้ไม่ได้ใช้ ต่อไปยัง Webhook เดิม (เช่น Slip2Go)
+function renew_forward_events($body, $events, $raw) {
+    $url = trim(renew_settings()['forward_webhook']);
+    if ($url === '' || !preg_match('#^https://#i', $url)) return;
+    $all = count($body['events'] ?? []);
+    if ($all > 0 && !$events) return;                 // ระบบนี้ใช้ครบทุกเหตุการณ์แล้ว
+    // ไม่ได้ตัดเหตุการณ์ไหนออก → ส่งต้นฉบับเดิมเป๊ะ ๆ · ตัดออกบางอัน → สร้างใหม่แล้วเซ็นด้วย Channel secret เดียวกัน
+    $out = ($all === count($events)) ? $raw : json_encode(['destination' => $body['destination'] ?? '', 'events' => array_values($events)], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $sig = base64_encode(hash_hmac('sha256', $out, renew_settings()['line_secret'], true));
+    // ปล่อยคำตอบให้ LINE ก่อน (ถ้าเซิร์ฟเวอร์รองรับ) แล้วค่อยส่งต่อ
+    if (function_exists('fastcgi_finish_request')) @fastcgi_finish_request();
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true, CURLOPT_POSTFIELDS => $out, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'X-Line-Signature: ' . $sig, 'User-Agent: LineBotWebhook/2.0'],
+    ]);
+    $res = curl_exec($ch);
+    $http = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($http < 200 || $http >= 300) {
+        error_log('[line_webhook] forward HTTP ' . $http . ': ' . substr((string)$res, 0, 200));
+        if (random_int(1, 10) === 1) renew_log('⚠️ ส่งต่อ Webhook เดิมไม่สำเร็จ', ['HTTP ' . $http, $url]);
+    }
+}
 
 function renew_touch_contact($uid) {
     $db = renew_db();
@@ -67,10 +101,11 @@ function renew_user_rows($uid) {
     return $st->fetchAll();
 }
 
+// คืน true = ระบบต่อเมลใช้เหตุการณ์นี้แล้ว (ไม่ส่งต่อ) · false = ไม่เกี่ยว ส่งต่อให้ Webhook เดิม
 function renew_handle_event($ev) {
     $uid = $ev['source']['userId'] ?? '';
     $reply = $ev['replyToken'] ?? '';
-    if ($uid === '' || ($ev['source']['type'] ?? 'user') !== 'user') return; // ตอบเฉพาะแชทส่วนตัว
+    if ($uid === '' || ($ev['source']['type'] ?? 'user') !== 'user') return false; // ตอบเฉพาะแชทส่วนตัว
     renew_touch_contact($uid);
     $type = $ev['type'] ?? '';
 
@@ -81,40 +116,42 @@ function renew_handle_event($ev) {
             $r = renew_get((string)($d['r'] ?? ''));
             if (!$r || $r['line_user_id'] !== $uid || $r['status'] !== 'active') {
                 line_reply($reply, [line_text('ไม่พบรายการต่อเมลนี้ กรุณาพิมพ์ "ต่อเมล" แล้วเลือกใหม่ หรือทักแอดมินค่ะ')]);
-                return;
+                return true;
             }
             $allowed = array_column(renew_choices($r), 'id');
             if (!in_array((string)($d['p'] ?? ''), $allowed, true)) {
                 line_reply($reply, [line_text('แพ็กเกจนี้ใช้ต่อรายการนี้ไม่ได้ กรุณาพิมพ์ "ต่อเมล" แล้วเลือกใหม่ค่ะ')]);
-                return;
+                return true;
             }
             $pay = renew_create_payment($r, (string)$d['p'], $uid);
             line_reply($reply, $pay['ok'] ? renew_payment_messages($pay, $r) : [line_text($pay['error'])]);
+            return true;
         }
-        return;
+        return false;
     }
 
     if ($type === 'follow') {
+        if (trim(renew_settings()['forward_webhook']) !== '') return false;
         line_reply($reply, [line_text("ขอบคุณที่เพิ่มเพื่อนนะคะ 💖\nลูกค้าต่อเมล: พิมพ์รหัสที่ได้รับจากแอดมิน (เช่น R12345) เพื่อรับแจ้งเตือนก่อนหมดอายุ และต่อเมลในแชทนี้ได้เลยค่ะ")]);
-        return;
+        return true;
     }
-    if ($type !== 'message') return;
+    if ($type !== 'message') return false;
     $msg = $ev['message'] ?? [];
 
     // ---------- รูปสลิป ----------
     if (($msg['type'] ?? '') === 'image') {
         $pay = renew_pending_payment($uid);
-        if (!$pay) return; // ไม่มีรายการรอจ่าย = รูปทั่วไป ปล่อยให้แอดมินคุยเอง
+        if (!$pay) return false; // ไม่มีรายการรอจ่าย = รูปทั่วไป/สลิปซื้อของปกติ → ส่งต่อให้บริการเดิม
         $img = line_content((string)$msg['id']);
         if ($img === null) {
             line_reply($reply, [line_text('โหลดรูปสลิปไม่สำเร็จ กรุณาส่งรูปอีกครั้งค่ะ')]);
-            return;
+            return true;
         }
         line_reply($reply, renew_handle_slip($pay, $img));
-        return;
+        return true;
     }
 
-    if (($msg['type'] ?? '') !== 'text') return;
+    if (($msg['type'] ?? '') !== 'text') return false;
     $text = trim((string)($msg['text'] ?? ''));
     $st = renew_settings();
 
@@ -123,7 +160,7 @@ function renew_handle_event($ev) {
         renew_db()->prepare("UPDATE renew_contacts SET is_admin = 1 WHERE line_user_id = ?")->execute([$uid]);
         renew_log('👤 เพิ่มแอดมินรับแจ้งเตือน', ['LINE: ' . renew_contact_name($uid)]);
         line_reply($reply, [line_text('✅ บัญชีนี้จะได้รับแจ้งเตือนระบบต่อเมลทาง LINE แล้วค่ะ')]);
-        return;
+        return true;
     }
 
     // ---------- ลูกค้าพิมพ์รหัสผูกแชท ----------
@@ -134,11 +171,11 @@ function renew_handle_event($ev) {
         $r = $q->fetch();
         if (!$r) {
             line_reply($reply, [line_text("ไม่พบรหัส $code กรุณาตรวจสอบรหัสกับแอดมินอีกครั้งค่ะ")]);
-            return;
+            return true;
         }
         if ($r['line_user_id'] && $r['line_user_id'] !== $uid) {
             line_reply($reply, [line_text('รหัสนี้ถูกผูกกับบัญชี LINE อื่นไปแล้ว กรุณาทักแอดมินค่ะ')]);
-            return;
+            return true;
         }
         $name = renew_contact_name($uid);
         if (!$r['line_user_id']) {
@@ -153,7 +190,7 @@ function renew_handle_event($ev) {
             line_text("ผูกบัญชีเรียบร้อยค่ะ ✅\nระบบจะแจ้งเตือนในแชทนี้ก่อนหมดอายุ " . (int)$st['remind_days'] . " วัน และกดต่ออายุจากการ์ดได้เลยค่ะ"),
             $flex,
         ])));
-        return;
+        return true;
     }
 
     // ---------- ขอดูรายการของตัวเอง ----------
@@ -161,9 +198,11 @@ function renew_handle_event($ev) {
         $rows = renew_user_rows($uid);
         if (!$rows) {
             line_reply($reply, [line_text('ยังไม่มีรายการต่อเมลที่ผูกกับบัญชีนี้ค่ะ กรุณาพิมพ์รหัสที่ได้รับจากแอดมิน (เช่น R12345)')]);
-            return;
+            return true;
         }
         line_reply($reply, [renew_flex_message($rows, '🔁 ต่อเมล')]);
+        return true;
     }
-    // ข้อความอื่น: ไม่ตอบ
+    // ข้อความอื่น: ไม่ตอบ (ส่งต่อให้บริการเดิม)
+    return false;
 }

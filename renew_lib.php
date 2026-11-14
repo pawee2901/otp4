@@ -119,6 +119,7 @@ function renew_setting_defaults() {
         'line_token'       => '',
         'line_secret'      => '',
         'line_oa_id'       => '',      // เช่น @monalishop (ใช้ทำลิงก์แอดเพื่อน)
+        'forward_webhook'  => '',      // Webhook เดิมของ OA (เช่น Slip2Go) — ส่งต่อเหตุการณ์ที่ระบบนี้ไม่ได้ใช้
         'slip2go_url'      => '',      // Base URL จากหน้า Slip2Go (API Connect)
         'slip2go_secret'   => '',
         'promptpay_id'     => '',      // เบอร์ 10 หลัก / เลข 13 หลัก / e-Wallet 15 หลัก

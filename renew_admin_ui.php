@@ -48,7 +48,8 @@
             <summary class="font-bold text-sky-800 cursor-pointer">วิธีตั้งค่าครั้งแรก (กดเพื่อดู)</summary>
             <ol class="list-decimal pl-5 mt-2 space-y-1.5 leading-relaxed">
                 <li><b>LINE Developers</b> → เลือก Channel ของ LINE OA ร้าน (Messaging API) → แท็บ <b>Basic settings</b> คัดลอก <b>Channel secret</b> · แท็บ <b>Messaging API</b> กด Issue <b>Channel access token</b> แล้ววางในช่องด้านล่าง</li>
-                <li>แท็บ Messaging API → <b>Webhook URL</b> ใส่ <code id="renewWebhookUrl2" class="bg-white px-1 rounded"></code> → กด Update → Verify → เปิด <b>Use webhook</b></li>
+                <li><b>ถ้าช่อง Webhook URL ใน LINE Developers มีลิงก์ของบริการอื่นอยู่แล้ว (เช่น Slip2Go ตรวจสลิปในแชท)</b> → คัดลอกลิงก์นั้นมาใส่ช่อง <b>"Webhook เดิม (ส่งต่อ)"</b> ด้านล่างก่อน แล้วกดบันทึก — บริการเดิมจะยังทำงานเหมือนเดิม</li>
+                <li>แท็บ Messaging API → <b>Webhook URL</b> ใส่ <code id="renewWebhookUrl2" class="bg-white px-1 rounded break-all"></code> แทน → กด Update → Verify → เปิด <b>Use webhook</b></li>
                 <li>LINE Official Account Manager → ตั้งค่าการตอบกลับ: เปิด <b>Webhook</b> และ<b>ปิดข้อความตอบกลับอัตโนมัติ</b> (ไม่งั้นบอทจะตอบซ้อน) — แชทกับแอดมินยังใช้ได้ตามปกติ</li>
                 <li><b>Slip2Go</b> → เมนู API Connect: คัดลอก <b>API URL</b> และ <b>Secret Key</b> มาใส่ด้านล่าง (ถ้าตั้ง IP Whitelist ไว้ ต้องปิดหรือเพิ่ม IP ของ Render)</li>
                 <li>ใส่ <b>พร้อมเพย์</b> ที่จะรับเงิน (QR สร้างยอดพอดีให้ลูกค้าอัตโนมัติ)</li>
@@ -64,6 +65,9 @@
                 <input id="rsLineSecret" type="password" placeholder="เว้นว่าง = ไม่เปลี่ยน" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">LINE OA ID (เช่น @monalishop)</span>
                 <input id="rsOaId" type="text" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
+            <label class="space-y-1 sm:col-span-2"><span class="text-[11px] font-bold text-gray-600">Webhook เดิม (ส่งต่อ) — ลิงก์ที่เคยอยู่ในช่อง Webhook URL ของ LINE เช่น ของ Slip2Go · เว้นว่างถ้าไม่มี</span>
+                <input id="rsForward" type="text" placeholder="https://..." class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600">
+                <span class="block text-[10px] text-gray-400">ข้อความที่ไม่ใช่เรื่องต่อเมล (เช่น สลิปซื้อของปกติ) จะถูกส่งต่อไปที่ลิงก์นี้ บริการเดิมจึงยังตรวจสลิป/ตอบแชทได้เหมือนเดิม</span></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">พร้อมเพย์รับเงิน (เบอร์ / เลข 13 หลัก)</span>
                 <input id="rsPromptpay" type="text" inputmode="numeric" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">ชื่อบัญชีผู้รับ (แสดงให้ลูกค้า)</span>
@@ -193,7 +197,7 @@
         document.getElementById('rsSecretSet').innerText = s.line_secret_set ? '✓ ตั้งแล้ว' : '';
         document.getElementById('rsSlipSet').innerText = s.slip2go_secret_set ? '✓ ตั้งแล้ว' : '';
         const set = (id, v) => { const el = document.getElementById(id); if (document.activeElement !== el) el.value = v; };
-        set('rsOaId', s.line_oa_id); set('rsPromptpay', s.promptpay_id); set('rsPayName', s.pay_name);
+        set('rsOaId', s.line_oa_id); set('rsForward', s.forward_webhook || ''); set('rsPromptpay', s.promptpay_id); set('rsPayName', s.pay_name);
         set('rsSlipUrl', s.slip2go_url); set('rsRecvType', s.receiver_type); set('rsRecvAcc', s.receiver_account);
         set('rsRemind', s.remind_days); set('rsGrace', s.grace_days); set('rsLate', s.late_fee); set('rsRemoved', s.removed_fee); set('rsFamSize', s.fam_size);
         document.getElementById('renewWebhookUrl').innerText = s.webhook_url;
@@ -436,7 +440,7 @@
     async function saveRenewSettings() {
         const v = (id) => document.getElementById(id).value.trim();
         const j = await renewAction('renew_settings_save', {
-            line_token: v('rsLineToken'), line_secret: v('rsLineSecret'), line_oa_id: v('rsOaId'),
+            line_token: v('rsLineToken'), line_secret: v('rsLineSecret'), line_oa_id: v('rsOaId'), forward_webhook: v('rsForward'),
             promptpay_id: v('rsPromptpay'), pay_name: v('rsPayName'), slip2go_url: v('rsSlipUrl'), slip2go_secret: v('rsSlipSecret'),
             receiver_type: v('rsRecvType'), receiver_account: v('rsRecvAcc'),
             remind_days: v('rsRemind'), grace_days: v('rsGrace'), late_fee: v('rsLate'), removed_fee: v('rsRemoved'), fam_size: v('rsFamSize'),
