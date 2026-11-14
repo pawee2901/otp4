@@ -537,19 +537,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode(['success' => false, 'step' => 'mail', 'message' => $list['error']['message'], 'raw' => $list['raw'], 'notes' => $notes]);
             exit;
         }
-        $msgs = [];
-        foreach ($list['messages'] as $m) {
-            $ts = strtotime($m['receivedDateTime'] ?? '') ?: 0;
-            $dt = new DateTime('@' . $ts);
-            $dt->setTimezone(new DateTimeZone('Asia/Bangkok'));
-            $msgs[] = [
-                'time'    => $dt->format('d/m H:i'),
-                'age_min' => (int)floor((time() - $ts) / 60),
-                'from'    => $m['from']['emailAddress']['address'] ?? '',
-                'subject' => $m['subject'] ?? '',
-            ];
+        $fmt = function ($rows) {
+            $out = [];
+            foreach ($rows as $m) {
+                $ts = strtotime($m['receivedDateTime'] ?? '') ?: 0;
+                $dt = new DateTime('@' . $ts);
+                $dt->setTimezone(new DateTimeZone('Asia/Bangkok'));
+                $out[] = [
+                    'time'    => $dt->format('d/m H:i'),
+                    'age_min' => (int)floor((time() - $ts) / 60),
+                    'from'    => $m['from']['emailAddress']['address'] ?? '',
+                    'subject' => $m['subject'] ?? '',
+                ];
+            }
+            return $out;
+        };
+        $graph_get = function ($path) use ($tok) {
+            $ch = curl_init('https://graph.microsoft.com/v1.0/' . $path);
+            curl_setopt_array($ch, [CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $tok['access_token']], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 8]);
+            $res = curl_exec($ch);
+            $http = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            return $http === 200 ? json_decode((string)$res, true) : null;
+        };
+        // กล่องเมลนี้เป็นของบัญชีไหนจริง ๆ (กันกรณีล็อกอินผิดบัญชีตอนกดเชื่อมต่อ)
+        $me = $graph_get('me?$select=mail,userPrincipalName,displayName');
+        $mailbox = $me['mail'] ?? ($me['userPrincipalName'] ?? '');
+        if ($mailbox !== '' && strtolower($mailbox) !== strtolower($acc['email'])) {
+            $notes[] = "ระบบอ่านกล่องของบัญชี $mailbox ซึ่งไม่ตรงกับอีเมลบนการ์ด → กดเชื่อมต่อ Hotmail ใหม่ แล้วล็อกอินให้ถูกบัญชี";
         }
-        echo json_encode(['success' => true, 'message' => 'เชื่อมต่อปกติ อ่านกล่องเมลได้', 'messages' => $msgs, 'notes' => $notes]);
+        $sel = '$select=subject,from,receivedDateTime';
+        $inbox = $graph_get('me/mailFolders/inbox/messages?$top=5&$orderby=receivedDateTime%20desc&' . $sel);
+        $junk  = $graph_get('me/mailFolders/junkemail/messages?$top=5&$orderby=receivedDateTime%20desc&' . $sel);
+        // ค้นหาเมลตามคำของทุกแอป (ไม่สนลำดับเวลา) — เผื่อเมลไปอยู่โฟลเดอร์แปลก ๆ
+        $search = [];
+        foreach (($config['apps'] ?? []) as $app) {
+            if (empty($app['active'])) continue;
+            $kw = strtolower(trim(explode(',', (string)($app['keywords'] ?: $app['name']))[0]));
+            $kw = preg_replace('/[^a-z0-9ก-๙ ]/u', '', $kw);
+            if ($kw === '' || isset($search[$kw])) continue;
+            $r = $graph_get('me/messages?$top=3&$search=' . rawurlencode('"' . $kw . '"') . '&' . $sel);
+            $search[$kw] = $fmt($r['value'] ?? []);
+            if (count($search) >= 6) break;
+        }
+        $now = new DateTime('now', new DateTimeZone('Asia/Bangkok'));
+        echo json_encode([
+            'success'  => true,
+            'message'  => 'เชื่อมต่อปกติ อ่านกล่องเมลได้',
+            'mailbox'  => $mailbox !== '' ? $mailbox : $acc['email'],
+            'now'      => $now->format('d/m H:i:s'),
+            'messages' => $fmt($list['messages']),
+            'inbox'    => $inbox !== null ? $fmt($inbox['value'] ?? []) : null,
+            'junk'     => $junk !== null ? $fmt($junk['value'] ?? []) : null,
+            'search'   => $search,
+            'notes'    => $notes,
+        ]);
         exit;
     }
 
@@ -2291,16 +2333,27 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
             (data.notes || []).forEach(n => { html += `<div class="bg-amber-50 border border-amber-200 text-amber-700 rounded-xl p-2.5 text-[11px] mt-2"><i class="fa-solid fa-circle-info mr-1"></i>${escHtml(n)}</div>`; });
             if (data.raw) html += `<details class="mt-2 text-[10px] text-gray-400"><summary class="cursor-pointer">รายละเอียดทางเทคนิค</summary><pre class="whitespace-pre-wrap break-all mt-1">${escHtml(data.raw)}</pre></details>`;
             if (data.success) {
-                const msgs = data.messages || [];
-                html += `<p class="text-xs font-bold text-gray-700 mt-4 mb-1.5">อีเมลล่าสุดในกล่อง (${msgs.length} ฉบับ)</p>`;
-                if (!msgs.length) html += '<p class="text-xs text-gray-400">ยังไม่มีอีเมลในกล่องเลย</p>';
-                html += '<div class="space-y-1.5 max-h-72 overflow-y-auto">' + msgs.map(m => {
+                const row = m => {
                     const old = m.age_min > 120;
                     return `<div class="border ${old ? 'border-gray-100 bg-gray-50 text-gray-400' : 'border-sky-100 bg-sky-50/50 text-gray-700'} rounded-lg px-2.5 py-1.5 text-[11px]">
                         <div class="flex justify-between gap-2"><span class="font-bold truncate">${escHtml(m.from)}</span><span class="flex-shrink-0">${escHtml(m.time)}</span></div>
                         <div class="truncate">${escHtml(m.subject || '(ไม่มีหัวข้อ)')}</div></div>`;
-                }).join('') + '</div>';
-                html += '<p class="text-[10px] text-gray-400 mt-2 leading-relaxed">ระบบหารหัสจากอีเมลที่เข้ามาไม่เกิน 2 ชั่วโมง (สีฟ้า) · ถ้าเมล OTP ไม่อยู่ในรายการนี้ แปลว่าแอปปลายทางส่งไปอีเมลอื่น หรือยังส่งไม่ถึง</p>';
+                };
+                const section = (title, list) => {
+                    if (list === null || list === undefined) return `<p class="text-xs font-bold text-gray-700 mt-4 mb-1.5">${title}</p><p class="text-[11px] text-gray-400">อ่านไม่ได้</p>`;
+                    return `<p class="text-xs font-bold text-gray-700 mt-4 mb-1.5">${title} (${list.length})</p>` +
+                        (list.length ? '<div class="space-y-1.5">' + list.map(row).join('') + '</div>' : '<p class="text-[11px] text-gray-400">ไม่มี</p>');
+                };
+                html += `<div class="mt-3 bg-gray-50 border border-gray-100 rounded-xl p-2.5 text-[11px] text-gray-600 space-y-0.5">
+                    <div>กล่องเมลที่ระบบอ่าน: <b>${escHtml(data.mailbox)}</b></div>
+                    <div>เวลาที่ทดสอบ: <b>${escHtml(data.now)}</b> (เวลาไทย)</div></div>`;
+                html += '<div class="max-h-[55vh] overflow-y-auto pr-1">';
+                html += section('ล่าสุดทุกโฟลเดอร์', data.messages || []);
+                html += section('กล่องจดหมายเข้า (Inbox)', data.inbox);
+                html += section('จดหมายขยะ (Junk)', data.junk);
+                Object.entries(data.search || {}).forEach(([kw, list]) => { html += section(`ค้นหาคำว่า "${escHtml(kw)}"`, list); });
+                html += '</div>';
+                html += '<p class="text-[10px] text-gray-400 mt-2 leading-relaxed">ระบบหารหัสจากอีเมลที่เข้ามาไม่เกิน 2 ชั่วโมง (สีฟ้า) · ถ้าเมล OTP ไม่อยู่ในรายการใดเลย แปลว่าเมลไม่ได้เข้ากล่องของบัญชีด้านบน</p>';
             }
             body.innerHTML = html;
         }
