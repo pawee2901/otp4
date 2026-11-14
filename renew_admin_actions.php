@@ -77,6 +77,7 @@ try {
                 'slip_mode' => $st['slip_mode'], 'line_oa_id' => $st['line_oa_id'], 'forward_webhook' => $st['forward_webhook'], 'slip2go_url' => $st['slip2go_url'],
                 'promptpay_id' => $st['promptpay_id'], 'pay_name' => $st['pay_name'],
                 'receiver_type' => $st['receiver_type'], 'receiver_account' => $st['receiver_account'],
+                'amount_extra' => (float)$st['amount_extra'], 'slip2go_ready' => $st['slip2go_url'] !== '' && $st['slip2go_secret'] !== '',
                 'remind_days' => (int)$st['remind_days'], 'grace_days' => (int)$st['grace_days'],
                 'late_fee' => (float)$st['late_fee'], 'removed_fee' => (float)$st['removed_fee'], 'fam_size' => max(1, (int)$st['fam_size']),
                 'admin_code' => $st['admin_code'],
@@ -286,7 +287,7 @@ try {
         if (isset($_POST['pay_style'])) $_POST['pay_style'] = in_array(renew_post('pay_style'), ['static', 'image', 'qr'], true) ? renew_post('pay_style') : 'static';
         $plain = ['slip_mode', 'card_style', 'pay_style', 'line_oa_id', 'forward_webhook', 'slip2go_url', 'promptpay_id', 'pay_name', 'receiver_type', 'receiver_account'];
         $secret = ['line_token', 'line_secret', 'slip2go_secret']; // เว้นว่าง = ไม่เปลี่ยน
-        $nums = ['pay_before_days' => [0, 30], 'remind_days' => [0, 30], 'grace_days' => [0, 60], 'late_fee' => [0, 100000], 'removed_fee' => [0, 100000], 'fam_size' => [1, 100]];
+        $nums = ['amount_extra' => [0, 1000], 'pay_before_days' => [0, 30], 'remind_days' => [0, 30], 'grace_days' => [0, 60], 'late_fee' => [0, 100000], 'removed_fee' => [0, 100000], 'fam_size' => [1, 100]];
         if (isset($_POST['promptpay_id'])) {
             $pp = preg_replace('/\D/', '', renew_post('promptpay_id'));
             if ($pp !== '' && !in_array(strlen($pp), [10, 13, 15], true)) renew_fail('พร้อมเพย์ต้องเป็นเบอร์มือถือ 10 หลัก / เลข 13 หลัก / e-Wallet 15 หลัก');

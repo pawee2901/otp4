@@ -77,8 +77,8 @@
                 <input id="rsPayName" type="text" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
             <label class="space-y-1 sm:col-span-2"><span class="text-[11px] font-bold text-gray-600">วิธีตรวจสลิปค่าต่อเมล</span>
                 <select id="rsSlipMode" onchange="document.getElementById('rsApiBox').classList.toggle('opacity-50', this.value !== 'api')" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none bg-white">
-                    <option value="chat">ให้ Slip2Go ในแชทของร้านตรวจ แล้วแอดมินกด "ยืนยันรับเงิน" (ตรวจครั้งเดียว ไม่ต้องใช้ API)</option>
-                    <option value="api">ระบบตรวจเองผ่าน Slip2Go API แล้วต่ออายุให้อัตโนมัติ</option>
+                    <option value="api">อัตโนมัติ — ระบบตรวจสลิปผ่าน Slip2Go API แล้วต่ออายุ + ตอบลูกค้าทันที (แอดมินไม่ต้องกด)</option>
+                    <option value="chat">ให้ Slip2Go ในแชทของร้านตรวจ แล้วแอดมินกด "ยืนยันรับเงิน" (ไม่ต้องใช้ API)</option>
                 </select></label>
             <div id="rsApiBox" class="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">Slip2Go API URL (เฉพาะแบบตรวจเองผ่าน API)</span>
@@ -86,13 +86,16 @@
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">Slip2Go Secret Key <span id="rsSlipSet" class="text-emerald-600"></span></span>
                 <input id="rsSlipSecret" type="password" placeholder="เว้นว่าง = ไม่เปลี่ยน" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
             </div>
-            <details class="sm:col-span-2 text-[11px] text-gray-500">
-                <summary class="cursor-pointer font-bold">ตรวจบัญชีผู้รับในสลิป (ไม่บังคับ)</summary>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-                    <label class="space-y-1"><span class="font-bold text-gray-600">Account type ของ Slip2Go (เช่น 02001 = พร้อมเพย์เบอร์มือถือ, 01004 = กสิกร)</span>
-                        <input id="rsRecvType" type="text" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>
-                    <label class="space-y-1"><span class="font-bold text-gray-600">เลขบัญชี / เบอร์พร้อมเพย์ที่รับเงิน</span>
-                        <input id="rsRecvAcc" type="text" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>
+            <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">รับยอดในสลิปเกินได้ไม่เกิน (บาท) — เช่น โอนผ่าน Wallet +5</span>
+                <input id="rsAmountExtra" type="number" min="0" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
+            <details class="sm:col-span-2 text-[11px] text-gray-500" open>
+                <summary class="cursor-pointer font-bold">ตรวจบัญชีผู้รับในสลิป (แนะนำ — กันสลิปที่โอนเข้าบัญชีอื่น)</summary>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
+                    <label class="space-y-1 sm:col-span-2"><span class="font-bold text-gray-600">บัญชีที่รับเงิน ใส่ได้หลายบัญชี รูปแบบ <code>ประเภท:เลข</code> คั่นด้วยจุลภาค</span>
+                        <input id="rsRecvAcc" type="text" placeholder="01004:1848641592, 04000:0813154812" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none">
+                        <span class="block text-[10px] text-gray-400">ประเภทของ Slip2Go: 01004 = กสิกร (K Plus) · 04000 = TrueMoney Wallet · 02001 = พร้อมเพย์เบอร์มือถือ</span></label>
+                    <label class="space-y-1"><span class="font-bold text-gray-600">ประเภทตั้งต้น (ถ้าใส่แค่เลข)</span>
+                        <input id="rsRecvType" type="text" placeholder="01004" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>
                 </div>
             </details>
         </div>
@@ -267,7 +270,7 @@
         renderRenewPayPreview();
         set('rsOaId', s.line_oa_id); set('rsSlipMode', s.slip_mode || 'chat');
         document.getElementById('rsApiBox').classList.toggle('opacity-50', (s.slip_mode || 'chat') !== 'api'); set('rsForward', s.forward_webhook || ''); set('rsPromptpay', s.promptpay_id); set('rsPayName', s.pay_name);
-        set('rsSlipUrl', s.slip2go_url); set('rsRecvType', s.receiver_type); set('rsRecvAcc', s.receiver_account);
+        set('rsAmountExtra', s.amount_extra); set('rsSlipUrl', s.slip2go_url); set('rsRecvType', s.receiver_type); set('rsRecvAcc', s.receiver_account);
         set('rsRemind', s.remind_days); set('rsGrace', s.grace_days); set('rsLate', s.late_fee); set('rsRemoved', s.removed_fee); set('rsFamSize', s.fam_size);
         document.getElementById('renewWebhookUrl').innerText = s.webhook_url;
         document.getElementById('renewWebhookUrl2').innerText = s.webhook_url;
@@ -630,7 +633,7 @@
         const j = await renewAction('renew_settings_save', {
             pay_style: v('rsPayStyle'), card_style: v('rsCardStyle'), pay_before_days: v('rsPayBefore'), slip_mode: v('rsSlipMode'), line_token: v('rsLineToken'), line_secret: v('rsLineSecret'), line_oa_id: v('rsOaId'), forward_webhook: v('rsForward'),
             promptpay_id: v('rsPromptpay'), pay_name: v('rsPayName'), slip2go_url: v('rsSlipUrl'), slip2go_secret: v('rsSlipSecret'),
-            receiver_type: v('rsRecvType'), receiver_account: v('rsRecvAcc'),
+            receiver_type: v('rsRecvType'), receiver_account: v('rsRecvAcc'), amount_extra: v('rsAmountExtra'),
             remind_days: v('rsRemind'), grace_days: v('rsGrace'), late_fee: v('rsLate'), removed_fee: v('rsRemoved'), fam_size: v('rsFamSize'),
         });
         if (j) ['rsLineToken', 'rsLineSecret', 'rsSlipSecret'].forEach(id => document.getElementById(id).value = '');

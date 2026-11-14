@@ -136,7 +136,8 @@ function renew_setting_defaults() {
         'promptpay_id'     => '',      // เบอร์ 10 หลัก / เลข 13 หลัก / e-Wallet 15 หลัก
         'pay_name'         => '',      // ชื่อบัญชีผู้รับ (แสดงให้ลูกค้าเห็น)
         'receiver_type'    => '',      // Slip2Go checkReceiver (ไม่บังคับ) เช่น 02001 = พร้อมเพย์เบอร์มือถือ
-        'receiver_account' => '',
+        'receiver_account' => '',      // หลายบัญชีได้: "01004:1848641592, 04000:0813154812" (ประเภท:เลข) — ตรงบัญชีใดบัญชีหนึ่ง = ผ่าน
+        'amount_extra'     => '5',     // รับยอดในสลิปเกินได้ไม่เกินกี่บาท (เช่น โอนผ่าน Wallet +5)
         'card_style'       => 'image', // image = การ์ดรูปของร้าน (เติมเมล/วันที่ลงในรูป) · basic = การ์ดข้อความ + ปุ่มแพ็กเกจ
         'pay_before_days'  => '2',
         'pay_style'        => 'static', // static = ส่งรูปวิธีชำระเงินของร้านตามเดิม (QR/บัญชีในรูป) · image = รูปของร้าน + QR ยอดพอดีวางทับ · qr = รูป QR ยอดพอดีอย่างเดียว
@@ -646,9 +647,7 @@ function slip2go_check($image_bytes, $amount) {
     file_put_contents($tmp, $image_bytes);
     $mime = (substr($image_bytes, 0, 4) === "\x89PNG") ? 'image/png' : 'image/jpeg';
     $payload = ['checkDuplicate' => true];
-    if ($st['receiver_type'] !== '' && $st['receiver_account'] !== '') {
-        $payload['checkReceiver'] = [['accountType' => $st['receiver_type'], 'accountNumber' => preg_replace('/[^0-9A-Za-z]/', '', $st['receiver_account'])]];
-    }
+    if ($recv = renew_receivers()) $payload['checkReceiver'] = $recv;
     $ch = curl_init($base . '/api/verify-slip/qr-image/info');
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
@@ -690,6 +689,20 @@ function slip2go_check($image_bytes, $amount) {
     return ['ok' => false, 'retry' => false, 'code' => $code, 'message' => 'ตรวจสลิปไม่ผ่าน (' . ($j['message'] ?? $code) . ')'];
 }
 
+// บัญชีผู้รับที่ยอมรับ (Slip2Go checkReceiver) จาก "ประเภท:เลข, ประเภท:เลข" หรือเลขอย่างเดียว (ใช้ประเภทจากช่อง Account type)
+function renew_receivers() {
+    $st = renew_settings();
+    $out = [];
+    foreach (preg_split('/[\s,]+/', trim($st['receiver_account'])) as $item) {
+        if ($item === '') continue;
+        [$type, $acc] = strpos($item, ':') !== false ? explode(':', $item, 2) : [$st['receiver_type'], $item];
+        $type = preg_replace('/\D/', '', $type);
+        $acc = preg_replace('/[^0-9A-Za-z]/', '', $acc);
+        if ($type !== '' && $acc !== '') $out[] = ['accountType' => $type, 'accountNumber' => $acc];
+    }
+    return $out;
+}
+
 // ลูกค้าส่งรูปสลิป → ตรวจ → ต่ออายุ · คืนข้อความตอบกลับ
 function renew_handle_slip($pay, $image_bytes) {
     $db = renew_db();
@@ -712,8 +725,9 @@ function renew_handle_slip($pay, $image_bytes) {
     }
     $d = $res['data'];
     $slip_amount = (float)($d['amount'] ?? 0);
-    if (abs($slip_amount - $amount) >= 0.005) {
-        return $fail('ยอดในสลิป ' . renew_baht($slip_amount) . ' ไม่ตรงกับยอดที่ต้องโอน ' . renew_baht($amount));
+    $extra = renew_num('amount_extra'); // เช่น โอนผ่าน Wallet +5 บาท
+    if ($slip_amount + 0.005 < $amount || $slip_amount - $amount > $extra + 0.005) {
+        return $fail('ยอดในสลิป ' . renew_baht($slip_amount) . ' ไม่ตรงกับยอดที่ต้องโอน ' . renew_baht($amount) . ($extra > 0 ? ' (เกินได้ไม่เกิน ' . renew_baht($extra) . ')' : ''));
     }
     $paid_ts = strtotime((string)($d['dateTime'] ?? '')) ?: 0;
     if (!$paid_ts) return $fail('อ่านเวลาโอนในสลิปไม่ได้');
