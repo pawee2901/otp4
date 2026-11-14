@@ -128,8 +128,9 @@
             <p class="text-xs font-extrabold text-gray-800"><i class="fa-solid fa-qrcode text-purple-600 mr-1"></i>หน้าชำระเงิน (หลังลูกค้ากด "กดต่ออายุ")</p>
             <label class="block space-y-1"><span class="text-[11px] font-bold text-gray-600">แบบหน้าชำระเงิน</span>
                 <select id="rsPayStyle" onchange="renderRenewPayPreview()" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none bg-white">
-                    <option value="image">รูป How To Pay ของร้าน + QR ยอดพอดีวางทับช่อง QR</option>
-                    <option value="qr">รูป QR อย่างเดียว</option>
+                    <option value="static">รูป How To Pay ของร้านตามเดิม (QR / บัญชีในรูป) + ข้อความบอกยอด — ไม่ต้องตั้งพร้อมเพย์</option>
+                    <option value="image">รูป How To Pay ของร้าน + QR ยอดพอดีวางทับช่อง QR (ต้องใส่พร้อมเพย์)</option>
+                    <option value="qr">รูป QR ยอดพอดีอย่างเดียว (ต้องใส่พร้อมเพย์)</option>
                 </select></label>
             <div class="flex flex-col sm:flex-row gap-3 items-start">
                 <div id="renewPayPreview" class="relative w-full max-w-[300px] rounded-2xl overflow-hidden border border-gray-200 flex-shrink-0"></div>
@@ -242,7 +243,7 @@
         const s = RENEW.settings;
         const warn = [];
         if (!s.line_token_set || !s.line_secret_set) warn.push('ยังไม่ได้ใส่ LINE Channel access token / secret');
-        if (!s.promptpay_id) warn.push('ยังไม่ได้ใส่พร้อมเพย์รับเงิน');
+        if (s.pay_style !== 'static' && !s.promptpay_id) warn.push('เลือกหน้าชำระเงินแบบมี QR ยอดพอดี แต่ยังไม่ได้ใส่พร้อมเพย์ — ตอนนี้ระบบส่งรูปวิธีชำระเงินของร้านตามเดิมแทน');
         if (s.slip_mode === 'api' && (!s.slip2go_url || !s.slip2go_secret_set)) warn.push('ยังไม่ได้ตั้งค่า Slip2Go API (เลือกแบบตรวจเองผ่าน API ไว้)');
         if (s.slip_mode !== 'api' && !s.forward_webhook) warn.push('เลือกให้ Slip2Go ในแชทตรวจสลิป แต่ยังไม่ได้ใส่ "Webhook เดิม (ส่งต่อ)" — สลิปจะไม่ถูกส่งไปให้ Slip2Go (แอดมินต้องดูสลิปเอง)');
         const waiting = RENEW.renewals.filter(r => r.slip_sent).length;
@@ -261,7 +262,7 @@
         set('rsCardStyle', s.card_style || 'image'); set('rsPayBefore', s.pay_before_days);
         document.getElementById('renewCardResetBtn').classList.toggle('hidden', !s.card_custom);
         renderRenewCardPreview();
-        set('rsPayStyle', s.pay_style || 'image');
+        set('rsPayStyle', s.pay_style || 'static');
         document.getElementById('renewPayResetBtn').classList.toggle('hidden', !s.pay_custom);
         renderRenewPayPreview();
         set('rsOaId', s.line_oa_id); set('rsSlipMode', s.slip_mode || 'chat');
@@ -384,11 +385,11 @@
         </div>`;
     }
 
-    function renewPayHtml(style = null) {
-        style = style || RENEW.settings.pay_style;
+    function renewPayHtml() {
+        const mode = RENEW.settings.pay_mode;
         const qr = '<div class="flex items-center justify-center bg-white" style="position:absolute;top:36.3%;left:62.3%;width:31.6%;height:31.6%;border-radius:6px"><i class="fa-solid fa-qrcode text-purple-500" style="font-size:20cqw"></i></div>';
-        return style === 'image'
-            ? `<div class="relative rounded-xl overflow-hidden border border-gray-200 shadow-sm" style="container-type:inline-size"><img src="${rEsc(RENEW.settings.pay_url)}" class="w-full block" alt="วิธีชำระเงิน" loading="lazy">${qr}</div>`
+        return mode !== 'qr'
+            ? `<div class="relative rounded-xl overflow-hidden border border-gray-200 shadow-sm" style="container-type:inline-size"><img src="${rEsc(RENEW.settings.pay_url)}" class="w-full block" alt="วิธีชำระเงิน" loading="lazy">${mode === 'overlay' ? qr : ''}</div>`
             : '<div class="rounded-xl border border-gray-200 bg-white aspect-square flex items-center justify-center"><i class="fa-solid fa-qrcode text-6xl text-purple-500"></i></div>';
     }
 
@@ -413,7 +414,7 @@
             <div class="space-y-1">
                 <p class="text-[11px] font-bold text-gray-700">② ลูกค้ากด "กดต่ออายุ" → ${choices > 1 ? 'เลือกแพ็กเกจ แล้วได้' : ''}หน้าชำระเงิน${amount !== null ? ' ยอด ' + rBaht(amount) : ''}</p>
                 <div class="max-w-[300px]">${renewPayHtml()}</div>
-                <p class="text-[10px] text-gray-400">ช่อง QR จะเป็น QR พร้อมเพย์ยอดพอดีของรายการนี้ ตามด้วยข้อความบอกยอดโอน${r.fee ? ' (รวมค่าต่อช้า ' + rBaht(r.fee) + ')' : ''}</p>
+                <p class="text-[10px] text-gray-400">${s.pay_mode === 'static' ? 'ส่งรูปนี้ตามเดิม' : 'ช่อง QR จะเป็น QR พร้อมเพย์ยอดพอดีของรายการนี้'} ตามด้วยข้อความบอกยอดโอน${amount !== null ? ' ' + rBaht(amount) : ''}${r.fee ? ' (รวมค่าต่อช้า ' + rBaht(r.fee) + ')' : ''}</p>
             </div>
             <div class="space-y-1 text-[11px] text-gray-600">
                 <p class="font-bold text-gray-700">③ ลูกค้าส่งสลิปในแชท</p>
@@ -606,9 +607,10 @@
         const box = document.getElementById('renewPayPreview');
         if (!RENEW || !box) return;
         const qrBox = '<div class="flex items-center justify-center bg-white text-gray-400 text-[10px] font-bold" style="position:absolute;top:36.3%;left:62.3%;width:31.6%;height:31.6%;border-radius:6px;outline:2px dashed #a855f7"><span><i class="fa-solid fa-qrcode text-2xl block text-center text-purple-500"></i>QR ยอดพอดี</span></div>';
-        box.innerHTML = document.getElementById('rsPayStyle').value === 'image'
-            ? `<img src="${rEsc(RENEW.settings.pay_url)}" class="w-full block" alt="วิธีชำระเงิน">` + qrBox
-            : '<div class="p-4 text-[11px] text-gray-500">ส่งรูป QR พร้อมเพย์ยอดพอดี + ข้อความบอกยอด</div>';
+        const v = document.getElementById('rsPayStyle').value;
+        box.innerHTML = v === 'qr'
+            ? '<div class="p-4 text-[11px] text-gray-500">ส่งรูป QR พร้อมเพย์ยอดพอดี + ข้อความบอกยอด</div>'
+            : `<img src="${rEsc(RENEW.settings.pay_url)}" class="w-full block" alt="วิธีชำระเงิน">` + (v === 'image' ? qrBox : '');
     }
 
     async function uploadRenewCard(input, k = 'card') {

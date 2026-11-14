@@ -139,7 +139,7 @@ function renew_setting_defaults() {
         'receiver_account' => '',
         'card_style'       => 'image', // image = การ์ดรูปของร้าน (เติมเมล/วันที่ลงในรูป) · basic = การ์ดข้อความ + ปุ่มแพ็กเกจ
         'pay_before_days'  => '2',
-        'pay_style'        => 'image', // image = รูป How To Pay ของร้าน + QR ยอดพอดีวางทับช่อง QR · qr = รูป QR อย่างเดียว     // วันครบกำหนดชำระ = วันหมดอายุ - N วัน (แสดงในการ์ดรูป)
+        'pay_style'        => 'static', // static = ส่งรูปวิธีชำระเงินของร้านตามเดิม (QR/บัญชีในรูป) · image = รูปของร้าน + QR ยอดพอดีวางทับ · qr = รูป QR ยอดพอดีอย่างเดียว
         'remind_days'      => '3',
         'grace_days'       => '3',
         'late_fee'         => '10',
@@ -528,7 +528,7 @@ function renew_qr_sig($payment_id) {
 function renew_create_payment($r, $package_id, $line_user_id) {
     $pkg = renew_package($package_id);
     if (!$pkg || !(int)$pkg['active']) return ['ok' => false, 'error' => 'แพ็กเกจนี้ปิดไปแล้ว กรุณาเลือกแพ็กเกจอื่น หรือติดต่อแอดมิน'];
-    if (preg_replace('/\D/', '', renew_settings()['promptpay_id']) === '') return ['ok' => false, 'error' => 'ร้านยังไม่ได้ตั้งค่าบัญชีรับเงิน กรุณาทักแอดมินค่ะ'];
+    $static = renew_pay_mode() === 'static';
     $f = renew_fee($r);
     $amount = round((float)$pkg['price'] + $f['fee'], 2);
     $db = renew_db();
@@ -537,8 +537,18 @@ function renew_create_payment($r, $package_id, $line_user_id) {
     $now = time();
     $db->prepare("INSERT INTO renew_payments (id, renewal_id, package_id, line_user_id, amount, fee, readd, status, attempts, created_at, expires_at)
                   VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)")
-       ->execute([$id, $r['id'], $pkg['id'], $line_user_id, $amount, $f['fee'], $f['readd'] ? 1 : 0, $now, $now + RENEW_QR_TTL]);
+       ->execute([$id, $r['id'], $pkg['id'], $line_user_id, $amount, $f['fee'], $f['readd'] ? 1 : 0, $now, $now + ($static ? 86400 : RENEW_QR_TTL)]); // รูปร้าน (ไม่มี QR หมดเวลา) รอสลิปได้ 24 ชม.
     return ['ok' => true, 'id' => $id, 'amount' => $amount, 'package' => $pkg, 'fee' => $f];
+}
+
+// วิธีส่งหน้าชำระเงินที่ใช้จริง: static (รูปร้านตามเดิม ไม่ต้องตั้งพร้อมเพย์) / overlay (รูปร้าน + QR ยอดพอดี) / qr
+// ถ้าเลือกแบบที่ต้องใช้ QR แต่ยังไม่ได้ใส่พร้อมเพย์ → ส่งรูปร้านตามเดิมแทน
+function renew_pay_mode() {
+    $st = renew_settings();
+    $has_pp = preg_replace('/\D/', '', $st['promptpay_id']) !== '';
+    if ($st['pay_style'] === 'qr') return $has_pp ? 'qr' : 'static';
+    if ($st['pay_style'] === 'image') return $has_pp ? 'overlay' : 'static';
+    return 'static';
 }
 
 // หน้าวิธีชำระเงินแบบรูปของร้าน: รูปพื้นหลัง + QR ยอดพอดีวางทับช่อง QR (แตะ QR = เปิดรูปใหญ่ไว้บันทึก/สแกน)
@@ -557,17 +567,29 @@ function renew_pay_flex($qr_url, $amount) {
 
 function renew_payment_messages($pay, $r) {
     $st = renew_settings();
+    $mode = renew_pay_mode();
+    if ($mode === 'static') {
+        // ส่งรูปวิธีชำระเงินของร้านตามเดิม + บอกยอด (ลูกค้าโอนตามช่องทางในรูป)
+        $img = renew_site_url() . '/' . renew_image_path('pay');
+        $txt = "💳 ต่ออายุ {$r['customer_email']}\n"
+             . "แพ็กเกจ: {$pay['package']['name']} ({$pay['package']['days']} วัน)\n"
+             . ($pay['fee']['fee'] > 0 ? "ค่า{$pay['fee']['why']}: " . renew_baht($pay['fee']['fee']) . "\n" : '')
+             . "ยอดโอน: " . renew_baht($pay['amount']) . "\n"
+             . "\nโอนยอดนี้ตามช่องทางในรูปด้านบน แล้ว \"ส่งรูปสลิป\" ในแชทนี้ได้เลยค่ะ "
+             . ($st['slip_mode'] === 'api' ? "ระบบจะต่ออายุให้อัตโนมัติ" : "ตรวจสลิปแล้วแอดมินจะยืนยันการต่ออายุให้ค่ะ");
+        return [['type' => 'image', 'originalContentUrl' => $img, 'previewImageUrl' => $img], line_text($txt)];
+    }
     $qr_url = renew_site_url() . '/renew_qr.php?id=' . $pay['id'] . '&t=' . renew_qr_sig($pay['id']);
     $txt = "💳 ต่ออายุ {$r['customer_email']}\n"
          . "แพ็กเกจ: {$pay['package']['name']} ({$pay['package']['days']} วัน)\n"
          . ($pay['fee']['fee'] > 0 ? "ค่า{$pay['fee']['why']}: " . renew_baht($pay['fee']['fee']) . "\n" : '')
          . "ยอดโอน: " . renew_baht($pay['amount']) . "\n"
          . ($st['pay_name'] !== '' ? "ชื่อบัญชี: {$st['pay_name']}\n" : '')
-         . "\nสแกน QR ด้านบนจ่ายยอดนี้พอดี" . ($st['pay_style'] === 'image' ? ' (แตะที่ QR เพื่อเปิดรูปใหญ่/บันทึกรูป)' : '') . " แล้ว \"ส่งรูปสลิป\" ในแชทนี้ได้เลยค่ะ "
+         . "\nสแกน QR ด้านบนจ่ายยอดนี้พอดี" . ($mode === 'overlay' ? ' (แตะที่ QR เพื่อเปิดรูปใหญ่/บันทึกรูป)' : '') . " แล้ว \"ส่งรูปสลิป\" ในแชทนี้ได้เลยค่ะ "
          . ($st['slip_mode'] === 'api' ? "ระบบจะต่ออายุให้อัตโนมัติ\n" : "ตรวจสลิปแล้วแอดมินจะยืนยันการต่ออายุให้ค่ะ\n")
          . "(QR ใช้ได้ " . (RENEW_QR_TTL / 60) . " นาที)";
     return [
-        $st['pay_style'] === 'image' ? renew_pay_flex($qr_url, $pay['amount'])
+        $mode === 'overlay' ? renew_pay_flex($qr_url, $pay['amount'])
             : ['type' => 'image', 'originalContentUrl' => $qr_url, 'previewImageUrl' => $qr_url],
         line_text($txt),
     ];

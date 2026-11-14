@@ -73,7 +73,7 @@ try {
                 'slip2go_secret_set' => $st['slip2go_secret'] !== '',
                 'card_style' => $st['card_style'], 'pay_before_days' => (int)$st['pay_before_days'],
                 'card_url' => renew_image_path('card'), 'card_custom' => (bool)renew_file('card'),
-                'pay_style' => $st['pay_style'], 'pay_url' => renew_image_path('pay'), 'pay_custom' => (bool)renew_file('pay'),
+                'pay_style' => $st['pay_style'], 'pay_mode' => renew_pay_mode(), 'pay_url' => renew_image_path('pay'), 'pay_custom' => (bool)renew_file('pay'),
                 'slip_mode' => $st['slip_mode'], 'line_oa_id' => $st['line_oa_id'], 'forward_webhook' => $st['forward_webhook'], 'slip2go_url' => $st['slip2go_url'],
                 'promptpay_id' => $st['promptpay_id'], 'pay_name' => $st['pay_name'],
                 'receiver_type' => $st['receiver_type'], 'receiver_account' => $st['receiver_account'],
@@ -213,14 +213,17 @@ try {
         $sample = ['id' => 'sample', 'customer_email' => 'customer.email@gmail.com', 'expires_on' => renew_today(3), 'shop_email' => 'fam@gmail.com',
                    'package_id' => '', 'removed_at' => null];
         $msg = renew_flex_message([$sample]);
-        $msgs = [line_text('ตัวอย่างการ์ดเตือนต่ออายุ + หน้าชำระเงิน (ปุ่มในการ์ดตัวอย่างกดใช้งานจริงไม่ได้ · QR ตัวอย่างยอด ฿1)'), $msg];
-        // ตัวอย่างหน้าชำระเงิน: QR ยอด 1 บาท (รายการทดสอบ ไม่ผูกลูกค้า)
-        if (preg_replace('/\D/', '', renew_settings()['promptpay_id']) !== '') {
+        $msgs = [line_text('ตัวอย่างการ์ดเตือนต่ออายุ + หน้าชำระเงิน (ปุ่มในการ์ดตัวอย่างกดใช้งานจริงไม่ได้)'), $msg];
+        if (renew_pay_mode() === 'static') {
+            $img = renew_site_url() . '/' . renew_image_path('pay');
+            $msgs[] = ['type' => 'image', 'originalContentUrl' => $img, 'previewImageUrl' => $img];
+        } else {
+            // ตัวอย่างหน้าชำระเงิน: QR ยอด 1 บาท (รายการทดสอบ ไม่ผูกลูกค้า)
             $pid = renew_id('p');
             $db->prepare("INSERT INTO renew_payments (id, renewal_id, package_id, line_user_id, amount, fee, readd, status, attempts, created_at, expires_at)
                           VALUES (?, 'sample', '', 'sample', 1, 0, 0, 'cancelled', 0, ?, ?)")->execute([$pid, time(), time()]);
             $qr = renew_site_url() . '/renew_qr.php?id=' . $pid . '&t=' . renew_qr_sig($pid);
-            $msgs[] = renew_settings()['pay_style'] === 'image' ? renew_pay_flex($qr, 1) : ['type' => 'image', 'originalContentUrl' => $qr, 'previewImageUrl' => $qr];
+            $msgs[] = renew_pay_mode() === 'overlay' ? renew_pay_flex($qr, 1) : ['type' => 'image', 'originalContentUrl' => $qr, 'previewImageUrl' => $qr];
         }
         $sent = 0;
         foreach ($admins as $uid) if (line_push($uid, $msgs)) $sent++;
@@ -280,7 +283,7 @@ try {
     if ($action === 'renew_settings_save') {
         if (isset($_POST['slip_mode'])) $_POST['slip_mode'] = renew_post('slip_mode') === 'api' ? 'api' : 'chat';
         if (isset($_POST['card_style'])) $_POST['card_style'] = renew_post('card_style') === 'basic' ? 'basic' : 'image';
-        if (isset($_POST['pay_style'])) $_POST['pay_style'] = renew_post('pay_style') === 'qr' ? 'qr' : 'image';
+        if (isset($_POST['pay_style'])) $_POST['pay_style'] = in_array(renew_post('pay_style'), ['static', 'image', 'qr'], true) ? renew_post('pay_style') : 'static';
         $plain = ['slip_mode', 'card_style', 'pay_style', 'line_oa_id', 'forward_webhook', 'slip2go_url', 'promptpay_id', 'pay_name', 'receiver_type', 'receiver_account'];
         $secret = ['line_token', 'line_secret', 'slip2go_secret']; // เว้นว่าง = ไม่เปลี่ยน
         $nums = ['pay_before_days' => [0, 30], 'remind_days' => [0, 30], 'grace_days' => [0, 60], 'late_fee' => [0, 100000], 'removed_fee' => [0, 100000], 'fam_size' => [1, 100]];
