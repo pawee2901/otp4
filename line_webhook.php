@@ -151,7 +151,7 @@ function renew_handle_event($ev) {
             }
             if ($act === 'stop') {
                 line_reply($reply, [['type' => 'template', 'altText' => 'ยืนยันไม่ต่ออายุ ' . $r['customer_email'],
-                    'template' => ['type' => 'confirm', 'text' => mb_substr("ยืนยันไม่ต่ออายุ\n{$r['customer_email']} ใช่ไหมคะ?", 0, 240), 'actions' => [
+                    'template' => ['type' => 'confirm', 'text' => mb_substr(renew_msg('msg_stop_confirm', renew_msg_vars($r)), 0, 240), 'actions' => [
                         ['type' => 'postback', 'label' => 'ยืนยันไม่ต่อ', 'data' => 'a=stopok&r=' . $r['id'], 'displayText' => 'ยืนยันไม่ต่ออายุ'],
                         ['type' => 'postback', 'label' => 'ยกเลิก', 'data' => 'a=nop', 'displayText' => 'ยกเลิก'],
                     ]]]]);
@@ -163,7 +163,7 @@ function renew_handle_event($ev) {
             $db->prepare("UPDATE renew_payments SET status = 'cancelled' WHERE renewal_id = ? AND status = 'pending'")->execute([$r['id']]);
             renew_notify_admin('🚫 ลูกค้าแจ้งไม่ต่ออายุ', ["เมลลูกค้า: {$r['customer_email']}", 'fam: ' . ($r['shop_email'] !== '' ? $r['shop_email'] : '-'),
                 'หมดอายุ ' . renew_date_th($r['expires_on']) . ' — ลบเมลออกจาก fam หลังหมดอายุได้เลย', 'LINE: ' . renew_contact_name($uid)]);
-            line_reply($reply, [line_text("รับทราบค่ะ ระบบจะไม่แจ้งเตือนต่ออายุ {$r['customer_email']} อีก\nใช้งานได้ถึง " . renew_date_th($r['expires_on']) . "\n\nขอบคุณที่ใช้บริการนะคะ 💖")]);
+            line_reply($reply, [line_text(renew_msg('msg_stopped', renew_msg_vars($r)))]);
             return true;
         }
 
@@ -187,7 +187,7 @@ function renew_handle_event($ev) {
 
     if ($type === 'follow') {
         if (trim(renew_settings()['forward_webhook']) !== '') return false;
-        line_reply($reply, [line_text("ขอบคุณที่เพิ่มเพื่อนนะคะ 💖\nลูกค้าต่อเมล: พิมพ์รหัสที่ได้รับจากแอดมิน (เช่น R12345) เพื่อรับแจ้งเตือนก่อนหมดอายุ และต่อเมลในแชทนี้ได้เลยค่ะ")]);
+        line_reply($reply, [line_text(renew_msg('msg_follow'))]);
         return true;
     }
     if ($type !== 'message') return false;
@@ -201,7 +201,7 @@ function renew_handle_event($ev) {
             // โหมด chat: ให้ Slip2Go ในแชทของร้านตรวจ (ส่งต่อ ไม่ตรวจซ้ำ) แล้วรอแอดมินกดยืนยัน
             renew_mark_slip_received($pay);
             if (trim(renew_settings()['forward_webhook']) !== '') return false;
-            line_reply($reply, [line_text('ได้รับสลิปแล้วค่ะ แอดมินจะตรวจสอบและยืนยันการต่ออายุให้เร็วที่สุดนะคะ 🙏')]);
+            line_reply($reply, [line_text(renew_msg('msg_slip_received', renew_msg_vars(renew_get($pay['renewal_id']) ?: [], ['amount' => renew_baht($pay['amount'])])))]);
             return true;
         }
         $img = line_content((string)$msg['id']);
@@ -249,7 +249,7 @@ function renew_handle_event($ev) {
         }
         $flex = renew_flex_message([$r], '🔁 รายการต่อเมลของคุณ');
         line_reply($reply, array_values(array_filter([
-            line_text("ผูกบัญชีเรียบร้อยค่ะ ✅\nระบบจะแจ้งเตือนในแชทนี้ก่อนหมดอายุ " . (int)$st['remind_days'] . " วัน และกดต่ออายุจากการ์ดได้เลยค่ะ"),
+            line_text(renew_msg('msg_linked', renew_msg_vars($r))),
             $flex,
         ])));
         return true;
@@ -259,7 +259,7 @@ function renew_handle_event($ev) {
     if (preg_match('/^(ต่อเมล|ต่ออายุ|เช็ควันหมด|วันหมดอายุ|ต่อเมล์)$/u', $text)) {
         $rows = renew_user_rows($uid);
         if (!$rows) {
-            line_reply($reply, [line_text('ยังไม่มีรายการต่อเมลที่ผูกกับบัญชีนี้ค่ะ กรุณาพิมพ์รหัสที่ได้รับจากแอดมิน (เช่น R12345)')]);
+            line_reply($reply, [line_text(renew_msg('msg_no_renewal'))]);
             return true;
         }
         line_reply($reply, [renew_flex_message($rows, '🔁 ต่อเมล')]);

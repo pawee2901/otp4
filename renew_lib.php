@@ -176,6 +176,83 @@ function renew_set($k, $v) {
     }
 }
 
+function renew_unset($k) {
+    renew_db()->prepare("DELETE FROM renew_kv WHERE k = ?")->execute([$k]);
+}
+
+// ---------------------------------------------------------------- ข้อความที่ส่งให้ลูกค้า (แอดมินแก้เองได้ในหน้าแอดมิน)
+// {ตัวแปร} ในข้อความจะถูกแทนด้วยข้อมูลจริงตอนส่ง · ว่าง = ใช้ข้อความตั้งต้น
+function renew_msg_defs() {
+    return [
+        'msg_code' => ['label' => 'ข้อความส่งรหัสผูกแชท', 'when' => 'แอดมินคัดลอกไปส่งให้ลูกค้า (ตอนเพิ่มลูกค้า / กด "ส่งรหัส")',
+            'vars' => ['code', 'email', 'add_friend'],
+            'default' => "พิมพ์รหัส {code} ในแชท LINE ร้าน เพื่อรับแจ้งเตือนและต่อเมล {email} อัตโนมัติก่อนหมดอายุค่ะ{add_friend}"],
+        'msg_linked' => ['label' => 'ผูกบัญชีสำเร็จ', 'when' => 'ลูกค้าพิมพ์รหัสในแชทแล้ว (ส่งคู่กับการ์ด)',
+            'vars' => ['email', 'expiry', 'remind_days'],
+            'default' => "ผูกบัญชีเรียบร้อยค่ะ ✅\nระบบจะแจ้งเตือนในแชทนี้ก่อนหมดอายุ {remind_days} วัน และกดต่ออายุจากการ์ดได้เลยค่ะ"],
+        'msg_pay' => ['label' => 'ข้อความบอกยอดโอน', 'when' => 'ลูกค้ากด "กดต่ออายุ" (ส่งต่อจากรูปวิธีชำระเงิน)',
+            'vars' => ['email', 'package', 'days', 'amount', 'fee_line', 'expiry', 'pay_hint', 'after_slip'],
+            'default' => "💳 ต่ออายุ {email}\nแพ็กเกจ: {package} ({days} วัน)\n{fee_line}ยอดโอน: {amount}\n\n{pay_hint} แล้ว \"ส่งรูปสลิป\" ในแชทนี้ได้เลยค่ะ {after_slip}"],
+        'msg_renewed' => ['label' => 'ต่ออายุสำเร็จ', 'when' => 'ตรวจสลิปผ่าน / แอดมินกดยืนยันรับเงิน / แอดมินกดต่อเอง (ติ๊กแจ้งลูกค้า)',
+            'vars' => ['email', 'expiry', 'package', 'readd_line'],
+            'default' => "✅ ต่ออายุเรียบร้อยค่ะ\nเมล: {email}\nใช้ได้ถึง {expiry}{readd_line}\n\nขอบคุณที่ใช้บริการนะคะ 💖"],
+        'msg_slip_received' => ['label' => 'ได้รับสลิป (รอแอดมินตรวจ)', 'when' => 'ลูกค้าส่งสลิป — แบบให้แอดมินยืนยัน และไม่ได้ส่งต่อให้ Slip2Go ในแชท',
+            'vars' => ['email', 'amount'],
+            'default' => "ได้รับสลิปแล้วค่ะ แอดมินจะตรวจสอบและยืนยันการต่ออายุให้เร็วที่สุดนะคะ 🙏"],
+        'msg_slip_failed' => ['label' => 'สลิปไม่ผ่าน (ตรวจอัตโนมัติ)', 'when' => 'ระบบตรวจสลิปผ่าน Slip2Go API แล้วไม่ผ่าน',
+            'vars' => ['reason', 'email', 'amount'],
+            'default' => "❌ {reason}\n\nหากโอนแล้วจริง กรุณาทักแอดมินพร้อมสลิปค่ะ"],
+        'msg_slip_manual' => ['label' => 'ระบบตรวจสลิปขัดข้อง', 'when' => 'Slip2Go API ใช้ไม่ได้ (key ผิด / token หมด) — แอดมินจะตรวจเอง',
+            'vars' => ['email', 'amount'],
+            'default' => "ได้รับสลิปแล้วค่ะ ระบบตรวจอัตโนมัติขัดข้อง แอดมินจะตรวจและต่ออายุให้เร็วที่สุดนะคะ 🙏"],
+        'msg_slip_rejected' => ['label' => 'แอดมินกด "สลิปไม่ผ่าน"', 'when' => 'แอดมินกดสลิปไม่ผ่านในหลังบ้าน',
+            'vars' => ['email', 'amount'],
+            'default' => "❌ สลิปค่าต่ออายุยังไม่ผ่านการตรวจค่ะ กรุณาทักแอดมินพร้อมสลิป หรือพิมพ์ \"ต่อเมล\" เพื่อทำรายการใหม่"],
+        'msg_stop_confirm' => ['label' => 'ถามยืนยันไม่ต่ออายุ (ไม่เกิน 240 ตัวอักษร)', 'when' => 'ลูกค้ากด "ไม่ต้องการต่ออายุแล้ว" (มีปุ่ม ยืนยันไม่ต่อ / ยกเลิก)',
+            'vars' => ['email', 'expiry'],
+            'default' => "ยืนยันไม่ต่ออายุ\n{email} ใช่ไหมคะ?"],
+        'msg_stopped' => ['label' => 'รับทราบไม่ต่ออายุ', 'when' => 'ลูกค้ากด "ยืนยันไม่ต่อ"',
+            'vars' => ['email', 'expiry'],
+            'default' => "รับทราบค่ะ ระบบจะไม่แจ้งเตือนต่ออายุ {email} อีก\nใช้งานได้ถึง {expiry}\n\nขอบคุณที่ใช้บริการนะคะ 💖"],
+        'msg_follow' => ['label' => 'ทักทายตอนแอดเพื่อน', 'when' => 'ลูกค้าแอด LINE ร้าน (เฉพาะตอนไม่ได้ส่งต่อ Webhook ให้บริการเดิม)',
+            'vars' => [],
+            'default' => "ขอบคุณที่เพิ่มเพื่อนนะคะ 💖\nลูกค้าต่อเมล: พิมพ์รหัสที่ได้รับจากแอดมิน (เช่น R12345) เพื่อรับแจ้งเตือนก่อนหมดอายุ และต่อเมลในแชทนี้ได้เลยค่ะ"],
+        'msg_no_renewal' => ['label' => 'พิมพ์ "ต่อเมล" แต่ยังไม่ผูกบัญชี', 'when' => 'ลูกค้าพิมพ์ ต่อเมล / เช็ควันหมด แต่ยังไม่มีรายการ',
+            'vars' => [],
+            'default' => "ยังไม่มีรายการต่อเมลที่ผูกกับบัญชีนี้ค่ะ กรุณาพิมพ์รหัสที่ได้รับจากแอดมิน (เช่น R12345)"],
+    ];
+}
+
+function renew_msg_custom() {
+    static $custom = null;
+    if ($custom === null) {
+        $custom = [];
+        foreach (renew_db()->query("SELECT k, v FROM renew_kv WHERE k LIKE 'msg_%'")->fetchAll() as $row) $custom[$row['k']] = (string)$row['v'];
+    }
+    return $custom;
+}
+
+function renew_msg($key, $vars = []) {
+    $defs = renew_msg_defs();
+    $t = trim(renew_msg_custom()[$key] ?? '');
+    if ($t === '') $t = $defs[$key]['default'] ?? '';
+    $map = [];
+    foreach ($vars as $k => $v) $map['{' . $k . '}'] = (string)$v;
+    return strtr($t, $map);
+}
+
+// ตัวแปรของข้อความเกี่ยวกับรายการต่อเมล
+function renew_msg_vars($r, $extra = []) {
+    return array_merge([
+        'email' => $r['customer_email'] ?? '', 'expiry' => isset($r['expires_on']) ? renew_date_th($r['expires_on']) : '',
+        'remind_days' => (int)renew_num('remind_days'), 'readd_line' => '',
+    ], $extra);
+}
+
+function renew_readd_line($readd) {
+    return $readd ? "\n\nแอดมินจะเพิ่มเมลกลับเข้า fam ให้เร็ว ๆ นี้นะคะ" : '';
+}
+
 function renew_num($key) {
     $v = (float)(renew_settings()[$key] ?? 0);
     return $v < 0 ? 0 : $v;
@@ -566,29 +643,27 @@ function renew_pay_flex($qr_url, $amount) {
     ]];
 }
 
+function renew_pay_text($pay, $r, $pay_hint) {
+    return renew_msg('msg_pay', renew_msg_vars($r, [
+        'package' => $pay['package']['name'], 'days' => (int)$pay['package']['days'], 'amount' => renew_baht($pay['amount']),
+        'fee_line' => $pay['fee']['fee'] > 0 ? "ค่า{$pay['fee']['why']}: " . renew_baht($pay['fee']['fee']) . "\n" : '',
+        'pay_hint' => $pay_hint,
+        'after_slip' => renew_settings()['slip_mode'] === 'api' ? 'ระบบจะต่ออายุให้อัตโนมัติ' : 'ตรวจสลิปแล้วแอดมินจะยืนยันการต่ออายุให้ค่ะ',
+    ]));
+}
+
 function renew_payment_messages($pay, $r) {
     $st = renew_settings();
     $mode = renew_pay_mode();
     if ($mode === 'static') {
         // ส่งรูปวิธีชำระเงินของร้านตามเดิม + บอกยอด (ลูกค้าโอนตามช่องทางในรูป)
         $img = renew_site_url() . '/' . renew_image_path('pay');
-        $txt = "💳 ต่ออายุ {$r['customer_email']}\n"
-             . "แพ็กเกจ: {$pay['package']['name']} ({$pay['package']['days']} วัน)\n"
-             . ($pay['fee']['fee'] > 0 ? "ค่า{$pay['fee']['why']}: " . renew_baht($pay['fee']['fee']) . "\n" : '')
-             . "ยอดโอน: " . renew_baht($pay['amount']) . "\n"
-             . "\nโอนยอดนี้ตามช่องทางในรูปด้านบน แล้ว \"ส่งรูปสลิป\" ในแชทนี้ได้เลยค่ะ "
-             . ($st['slip_mode'] === 'api' ? "ระบบจะต่ออายุให้อัตโนมัติ" : "ตรวจสลิปแล้วแอดมินจะยืนยันการต่ออายุให้ค่ะ");
+        $txt = renew_pay_text($pay, $r, 'โอนยอดนี้ตามช่องทางในรูปด้านบน');
         return [['type' => 'image', 'originalContentUrl' => $img, 'previewImageUrl' => $img], line_text($txt)];
     }
     $qr_url = renew_site_url() . '/renew_qr.php?id=' . $pay['id'] . '&t=' . renew_qr_sig($pay['id']);
-    $txt = "💳 ต่ออายุ {$r['customer_email']}\n"
-         . "แพ็กเกจ: {$pay['package']['name']} ({$pay['package']['days']} วัน)\n"
-         . ($pay['fee']['fee'] > 0 ? "ค่า{$pay['fee']['why']}: " . renew_baht($pay['fee']['fee']) . "\n" : '')
-         . "ยอดโอน: " . renew_baht($pay['amount']) . "\n"
-         . ($st['pay_name'] !== '' ? "ชื่อบัญชี: {$st['pay_name']}\n" : '')
-         . "\nสแกน QR ด้านบนจ่ายยอดนี้พอดี" . ($mode === 'overlay' ? ' (แตะที่ QR เพื่อเปิดรูปใหญ่/บันทึกรูป)' : '') . " แล้ว \"ส่งรูปสลิป\" ในแชทนี้ได้เลยค่ะ "
-         . ($st['slip_mode'] === 'api' ? "ระบบจะต่ออายุให้อัตโนมัติ\n" : "ตรวจสลิปแล้วแอดมินจะยืนยันการต่ออายุให้ค่ะ\n")
-         . "(QR ใช้ได้ " . (RENEW_QR_TTL / 60) . " นาที)";
+    $txt = renew_pay_text($pay, $r, 'สแกน QR ด้านบนจ่ายยอดนี้พอดี' . ($st['pay_name'] !== '' ? " (ชื่อบัญชี {$st['pay_name']})" : '')
+        . ($mode === 'overlay' ? ' แตะที่ QR เพื่อเปิดรูปใหญ่' : '') . ' · QR ใช้ได้ ' . (RENEW_QR_TTL / 60) . ' นาที');
     return [
         $mode === 'overlay' ? renew_pay_flex($qr_url, $pay['amount'])
             : ['type' => 'image', 'originalContentUrl' => $qr_url, 'previewImageUrl' => $qr_url],
@@ -632,8 +707,7 @@ function renew_confirm_payment($payment_id) {
     $r = renew_get($pay['renewal_id']);
     renew_log('🔁 ยืนยันรับเงินค่าต่อเมลแล้ว', ["เมลลูกค้า: {$r['customer_email']}", 'แพ็กเกจ: ' . ($pkg['name'] ?? '-') . ' · ยอด ' . renew_baht($pay['amount']), 'ใช้ได้ถึง ' . renew_date_th($new_exp)]);
     if ($r['line_user_id']) {
-        line_push($r['line_user_id'], [line_text("✅ ต่ออายุเรียบร้อยค่ะ\nเมล: {$r['customer_email']}\nใช้ได้ถึง " . renew_date_th($new_exp)
-            . ((int)$pay['readd'] ? "\n\nแอดมินจะเพิ่มเมลกลับเข้า fam ให้เร็ว ๆ นี้นะคะ" : '') . "\n\nขอบคุณที่ใช้บริการนะคะ 💖")]);
+        line_push($r['line_user_id'], [line_text(renew_msg('msg_renewed', renew_msg_vars($r, ['package' => $pkg['name'] ?? '', 'readd_line' => renew_readd_line((int)$pay['readd'])])))]);
     }
     return ['ok' => true, 'until' => $new_exp, 'readd' => (bool)(int)$pay['readd']];
 }
@@ -709,7 +783,8 @@ function renew_handle_slip($pay, $image_bytes) {
     $fail = function ($msg, $count = true) use ($db, $pay) {
         $db->prepare("UPDATE renew_payments SET last_error = ?" . ($count ? ", attempts = attempts + 1" : "") . " WHERE id = ?")
            ->execute([mb_substr($msg, 0, 490), $pay['id']]);
-        return [line_text("❌ $msg\n\nหากโอนแล้วจริง กรุณาทักแอดมินพร้อมสลิปค่ะ")];
+        $r = renew_get($pay['renewal_id']) ?: [];
+        return [line_text(renew_msg('msg_slip_failed', renew_msg_vars($r, ['reason' => $msg, 'amount' => renew_baht($pay['amount'])])))];
     };
     if ((int)$pay['attempts'] >= RENEW_MAX_ATTEMPT) {
         return [line_text('ส่งสลิปเกินจำนวนครั้งที่กำหนด กรุณาทักแอดมินพร้อมสลิปค่ะ')];
@@ -719,7 +794,7 @@ function renew_handle_slip($pay, $image_bytes) {
     if (!$res['ok']) {
         if (!empty($res['config'])) {
             renew_notify_admin('🚨 ตรวจสลิปไม่ได้ — ตั้งค่า Slip2Go', [$res['message'], 'ลูกค้ารอต่ออายุอยู่ ยอด ' . renew_baht($amount) . ' — ตรวจสลิปเอง แล้วกด "ต่อเอง" ในหลังบ้าน']);
-            return [line_text('ได้รับสลิปแล้วค่ะ ระบบตรวจอัตโนมัติขัดข้อง แอดมินจะตรวจและต่ออายุให้เร็วที่สุดนะคะ 🙏')];
+            return [line_text(renew_msg('msg_slip_manual', renew_msg_vars(renew_get($pay['renewal_id']) ?: [], ['amount' => renew_baht($amount)])))];
         }
         return $fail($res['message'], empty($res['retry']));
     }
@@ -754,8 +829,7 @@ function renew_handle_slip($pay, $image_bytes) {
     } else {
         renew_notify_admin('🔁 ลูกค้าต่อเมลแล้ว (จ่ายผ่าน LINE)', $info);
     }
-    return [line_text("✅ ต่ออายุเรียบร้อยค่ะ\nเมล: {$r['customer_email']}\nใช้ได้ถึง " . renew_date_th($new_exp)
-        . ((int)$pay['readd'] ? "\n\nแอดมินจะเพิ่มเมลกลับเข้า fam ให้เร็ว ๆ นี้นะคะ" : '') . "\n\nขอบคุณที่ใช้บริการนะคะ 💖")];
+    return [line_text(renew_msg('msg_renewed', renew_msg_vars($r, ['package' => $pkg['name'] ?? '', 'readd_line' => renew_readd_line((int)$pay['readd'])])))];
 }
 
 // ---------------------------------------------------------------- งานเป็นรอบ (renew_cron.php)

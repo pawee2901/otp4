@@ -170,6 +170,17 @@
         </div>
     </div>
 
+    <!-- ข้อความที่ส่งให้ลูกค้า -->
+    <div class="main-card rounded-3xl border border-gray-100 p-4 md:p-6 space-y-3">
+        <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 text-sm font-extrabold text-gray-900"><i class="fa-regular fa-comment-dots text-purple-600"></i><span>ข้อความที่ส่งให้ลูกค้า</span></div>
+            <button type="button" onclick="saveRenewMsgs()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm"><i class="fa-solid fa-floppy-disk mr-1"></i>บันทึกข้อความ</button>
+        </div>
+        <p class="text-[11px] text-gray-400">แก้ข้อความได้ตามใจ · กดปุ่ม <b>{ตัวแปร}</b> เพื่อแทรกข้อมูลจริงของลูกค้า (เช่น เมล วันหมดอายุ ยอดเงิน) · ลบข้อความทั้งหมด = กลับไปใช้ข้อความตั้งต้น</p>
+        <div id="renewMsgs" class="space-y-3"></div>
+        <div class="flex justify-end"><button type="button" onclick="saveRenewMsgs()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm"><i class="fa-solid fa-floppy-disk mr-1"></i>บันทึกข้อความ</button></div>
+    </div>
+
     <!-- บันทึกเหตุการณ์ -->
     <div class="main-card rounded-3xl border border-gray-100 p-4 md:p-6 space-y-3">
         <div class="flex items-center gap-2 text-sm font-extrabold text-gray-900"><i class="fa-solid fa-bell text-purple-600"></i><span>แจ้งเตือนล่าสุด</span></div>
@@ -209,7 +220,7 @@
 <script>
     let RENEW = null;
     let renewFilter = 'all';
-    const rEsc = (t) => { const d = document.createElement('div'); d.innerText = t == null ? '' : String(t); return d.innerHTML; };
+    const rEsc = (t) => { const d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }; // textContent: คงบรรทัดใหม่ไว้ (innerText แปลงเป็น <br>)
     const rBaht = (n) => '฿' + Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
     async function renewAction(action, data, reload = true) {
@@ -236,10 +247,93 @@
         navigator.clipboard.writeText(text).then(() => showNotification('คัดลอกแล้ว'), () => prompt('คัดลอกข้อความนี้', text));
     }
 
-    function renewCodeMsg(r) {
+    function renewAddFriend() {
         const oa = RENEW.settings.line_oa_id;
-        const add = oa ? `\nแอด LINE ร้าน: https://line.me/R/ti/p/${encodeURIComponent(oa.startsWith('@') ? oa : '@' + oa)}` : '';
-        return `พิมพ์รหัส ${r.link_code} ในแชท LINE ร้าน เพื่อรับแจ้งเตือนและต่อเมล ${r.customer_email} อัตโนมัติก่อนหมดอายุค่ะ${add}`;
+        return oa ? `\nแอด LINE ร้าน: https://line.me/R/ti/p/${encodeURIComponent(oa.startsWith('@') ? oa : '@' + oa)}` : '';
+    }
+
+    function renewFill(tpl, vars) {
+        return tpl.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+    }
+
+    function renewMsgTpl(key) {
+        const m = (RENEW.msgs || []).find(x => x.key === key);
+        return m ? (m.value.trim() || m.default) : '';
+    }
+
+    function renewCodeMsg(r) {
+        return renewFill(renewMsgTpl('msg_code'), { code: r.link_code, email: r.customer_email, add_friend: renewAddFriend() });
+    }
+
+    // ---------- แก้ข้อความที่ส่งให้ลูกค้า ----------
+    const RENEW_VAR_LABELS = {
+        email: 'เมลลูกค้า', expiry: 'วันหมดอายุ', package: 'ชื่อแพ็กเกจ', days: 'จำนวนวัน', amount: 'ยอดโอน', fee_line: 'บรรทัดค่าต่อช้า (ถ้ามี)',
+        pay_hint: 'วิธีจ่าย (อัตโนมัติตามแบบหน้าชำระเงิน)', after_slip: 'หลังส่งสลิป (อัตโนมัติตามวิธีตรวจสลิป)', readd_line: 'บรรทัดเพิ่มเมลกลับ fam (ถ้ามี)',
+        reason: 'เหตุผลที่สลิปไม่ผ่าน', code: 'รหัสผูกแชท', add_friend: 'ลิงก์แอด LINE ร้าน', remind_days: 'เตือนก่อนหมดกี่วัน',
+    };
+
+    function renewSampleVars() {
+        const s = RENEW.settings;
+        return {
+            email: 'customer@gmail.com', expiry: rThai(rAddDays(RENEW.today, 3)), package: (RENEW.packages[0] || {}).name || 'Youtube ต่อเมล',
+            days: (RENEW.packages[0] || {}).days || 30, amount: rBaht((RENEW.packages[0] || {}).price || 79), fee_line: '',
+            pay_hint: s.pay_mode === 'static' ? 'โอนยอดนี้ตามช่องทางในรูปด้านบน' : 'สแกน QR ด้านบนจ่ายยอดนี้พอดี · QR ใช้ได้ 15 นาที',
+            after_slip: s.slip_mode === 'api' ? 'ระบบจะต่ออายุให้อัตโนมัติ' : 'ตรวจสลิปแล้วแอดมินจะยืนยันการต่ออายุให้ค่ะ',
+            readd_line: '', reason: 'ยอดในสลิป ฿78 ไม่ตรงกับยอดที่ต้องโอน ฿79', code: 'R12345', add_friend: renewAddFriend(), remind_days: s.remind_days,
+        };
+    }
+
+    function renderRenewMsgs() {
+        const box = document.getElementById('renewMsgs');
+        if (!box || !RENEW.msgs) return;
+        if (box.dataset.ready === '1') return; // ไม่ทับข้อความที่กำลังแก้อยู่ตอนโหลดข้อมูลใหม่
+        box.dataset.ready = '1';
+        box.innerHTML = RENEW.msgs.map(m => `
+            <div class="border border-gray-200 rounded-2xl p-3 space-y-2" data-key="${rEsc(m.key)}">
+                <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0"><p class="text-xs font-extrabold text-gray-900">${rEsc(m.label)}</p><p class="text-[10px] text-gray-400">ส่งเมื่อ: ${rEsc(m.when)}</p></div>
+                    <button type="button" onclick="resetRenewMsg('${rEsc(m.key)}')" class="flex-shrink-0 text-[10px] font-bold text-gray-500 hover:text-purple-700 underline">คืนค่าเดิม</button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <textarea rows="5" oninput="previewRenewMsg('${rEsc(m.key)}')" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600 font-sans">${rEsc(m.value.trim() || m.default)}</textarea>
+                    <div class="rounded-xl bg-[#8cabd9]/20 border border-sky-100 p-2"><p class="text-[9px] font-bold text-gray-400 mb-1">ตัวอย่างที่ลูกค้าเห็น</p>
+                        <div class="msg-preview bg-white rounded-2xl rounded-tl-sm px-3 py-2 text-xs text-gray-800 whitespace-pre-wrap break-words shadow-sm"></div></div>
+                </div>
+                ${m.vars.length ? `<div class="flex flex-wrap gap-1">${m.vars.map(v => `<button type="button" title="${rEsc(RENEW_VAR_LABELS[v] || v)}" onclick="insertRenewVar('${rEsc(m.key)}','${v}')" class="text-[10px] font-bold px-2 py-0.5 rounded-lg border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100">{${v}} <span class="font-normal text-purple-500">${rEsc(RENEW_VAR_LABELS[v] || '')}</span></button>`).join('')}</div>` : ''}
+            </div>`).join('');
+        RENEW.msgs.forEach(m => previewRenewMsg(m.key));
+    }
+
+    function renewMsgBox(key) { return document.querySelector(`#renewMsgs [data-key="${key}"]`); }
+
+    function previewRenewMsg(key) {
+        const el = renewMsgBox(key);
+        if (!el) return;
+        const t = el.querySelector('textarea').value;
+        const def = (RENEW.msgs.find(x => x.key === key) || {}).default || '';
+        el.querySelector('.msg-preview').innerText = renewFill(t.trim() ? t : def, renewSampleVars());
+    }
+
+    function insertRenewVar(key, v) {
+        const ta = renewMsgBox(key).querySelector('textarea');
+        const s = ta.selectionStart ?? ta.value.length, e = ta.selectionEnd ?? ta.value.length;
+        ta.value = ta.value.slice(0, s) + '{' + v + '}' + ta.value.slice(e);
+        ta.focus();
+        ta.selectionStart = ta.selectionEnd = s + v.length + 2;
+        previewRenewMsg(key);
+    }
+
+    function resetRenewMsg(key) {
+        const m = RENEW.msgs.find(x => x.key === key);
+        renewMsgBox(key).querySelector('textarea').value = m.default;
+        previewRenewMsg(key);
+    }
+
+    async function saveRenewMsgs() {
+        const out = {};
+        document.querySelectorAll('#renewMsgs [data-key]').forEach(el => { out[el.dataset.key] = el.querySelector('textarea').value; });
+        const j = await renewAction('renew_msgs_save', { msgs: JSON.stringify(out) });
+        if (j) { document.getElementById('renewMsgs').dataset.ready = '0'; renderRenewMsgs(); }
     }
 
     function renderRenewAll() {
@@ -281,6 +375,7 @@
         document.getElementById('renewAdmins').innerText = s.admins.length ? 'รับแจ้งเตือน: ' + s.admins.join(', ') : 'ยังไม่มีแอดมินรับแจ้งเตือนทาง LINE';
 
         renderRenewList();
+        renderRenewMsgs();
         renderRenewFams();
         renderRenewPkgs();
         document.getElementById('renewLog').innerHTML = RENEW.log.length ? RENEW.log.map(l => `

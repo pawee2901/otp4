@@ -87,6 +87,9 @@ try {
                 'admins' => $admins,
             ],
             'log' => $log,
+            'msgs' => array_map(function ($k, $d) {
+                return ['key' => $k, 'label' => $d['label'], 'when' => $d['when'], 'vars' => $d['vars'], 'default' => $d['default'], 'value' => renew_msg_custom()[$k] ?? ''];
+            }, array_keys(renew_msg_defs()), renew_msg_defs()),
         ]);
     }
 
@@ -139,7 +142,7 @@ try {
             $db->prepare("UPDATE renew_payments SET status = 'cancelled' WHERE renewal_id = ? AND status IN ('pending', 'slip')")->execute([$r['id']]);
             renew_log('🔁 แอดมินต่ออายุให้เอง', ["เมลลูกค้า: {$r['customer_email']}", "แพ็กเกจ: {$pkg['name']}", 'ใช้ได้ถึง ' . renew_date_th($new)]);
             if (renew_post('notify') === '1' && $r['line_user_id']) {
-                line_push($r['line_user_id'], [line_text("✅ ต่ออายุเรียบร้อยค่ะ\nเมล: {$r['customer_email']}\nใช้ได้ถึง " . renew_date_th($new) . "\n\nขอบคุณที่ใช้บริการนะคะ 💖")]);
+                line_push($r['line_user_id'], [line_text(renew_msg('msg_renewed', renew_msg_vars(renew_get($r['id']), ['package' => $pkg['name'], 'readd_line' => renew_readd_line($was_removed)])))]);
             }
             renew_out(['success' => true, 'message' => 'ต่ออายุถึง ' . renew_date_th($new) . ($was_removed ? ' — อย่าลืมเชิญเมลกลับเข้า fam' : '')]);
         }
@@ -182,7 +185,7 @@ try {
         $db->prepare("UPDATE renew_payments SET status = 'rejected' WHERE id = ?")->execute([$pay['id']]);
         if (renew_post('notify') === '1') {
             $r = renew_get($pay['renewal_id']);
-            if ($r && $r['line_user_id']) line_push($r['line_user_id'], [line_text('❌ สลิปค่าต่ออายุยังไม่ผ่านการตรวจค่ะ กรุณาทักแอดมินพร้อมสลิป หรือพิมพ์ "ต่อเมล" เพื่อทำรายการใหม่')]);
+            if ($r && $r['line_user_id']) line_push($r['line_user_id'], [line_text(renew_msg('msg_slip_rejected', renew_msg_vars($r, ['amount' => renew_baht($pay['amount'])])))]);
         }
         renew_out(['success' => true, 'message' => 'ปฏิเสธสลิปแล้ว']);
     }
@@ -250,6 +253,19 @@ try {
         $st->execute([time(), $email]);
         $n = $st->rowCount();
         renew_out(['success' => true, 'message' => 'ลบเมลร้านแล้ว' . ($n ? " · ลูกค้า $n รายการเปลี่ยนเป็นไม่ระบุ fam" : '')]);
+    }
+
+    // ---------- ข้อความที่ส่งให้ลูกค้า ----------
+    if ($action === 'renew_msgs_save') {
+        $in = json_decode((string)($_POST['msgs'] ?? ''), true);
+        if (!is_array($in)) renew_fail('ข้อมูลไม่ถูกต้อง');
+        foreach (renew_msg_defs() as $k => $d) {
+            if (!array_key_exists($k, $in)) continue;
+            $v = trim(str_replace("\r\n", "\n", (string)$in[$k]));
+            if ($v === '' || $v === $d['default']) renew_unset($k);   // ว่าง/เหมือนเดิม = ใช้ข้อความตั้งต้น
+            else renew_set($k, mb_substr($v, 0, 2000));
+        }
+        renew_out(['success' => true, 'message' => 'บันทึกข้อความแล้ว']);
     }
 
     // ---------- แพ็กเกจ ----------
