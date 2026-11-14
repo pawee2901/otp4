@@ -112,7 +112,62 @@ function renew_handle_event($ev) {
     // ---------- กดปุ่มในการ์ด ----------
     if ($type === 'postback') {
         parse_str((string)($ev['postback']['data'] ?? ''), $d);
-        if (($d['a'] ?? '') === 'rn') {
+        $act = (string)($d['a'] ?? '');
+        if ($act === 'nop') return true;
+
+        // การ์ดรูป: กด "กดต่ออายุ" → แพ็กเกจเดียว = ส่ง QR เลย · หลายแพ็กเกจ = ให้เลือกก่อน
+        if ($act === 'pick') {
+            $r = renew_get((string)($d['r'] ?? ''));
+            if ($r && $r['line_user_id'] === $uid && $r['status'] !== 'active') {
+                line_reply($reply, [line_text("รายการ {$r['customer_email']} แจ้งไม่ต่ออายุไว้แล้วค่ะ\nหากต้องการต่ออายุ กรุณาทักแอดมินนะคะ")]);
+                return true;
+            }
+            if (!$r || $r['line_user_id'] !== $uid) {
+                line_reply($reply, [line_text('ไม่พบรายการต่อเมลนี้ กรุณาทักแอดมินค่ะ')]);
+                return true;
+            }
+            $choices = renew_choices($r);
+            if (count($choices) === 1) {
+                $pay = renew_create_payment($r, $choices[0]['id'], $uid);
+                line_reply($reply, $pay['ok'] ? renew_payment_messages($pay, $r) : [line_text($pay['error'])]);
+            } elseif (!$choices) {
+                line_reply($reply, [line_text('ยังไม่มีแพ็กเกจให้เลือก กรุณาทักแอดมินค่ะ')]);
+            } else {
+                line_reply($reply, [renew_flex_message([$r], '🔁 เลือกแพ็กเกจต่ออายุ', 'basic')]);
+            }
+            return true;
+        }
+
+        // การ์ดรูป: กด "ไม่ต้องการต่ออายุแล้ว" → ถามยืนยันก่อน
+        if ($act === 'stop' || $act === 'stopok') {
+            $r = renew_get((string)($d['r'] ?? ''));
+            if (!$r || $r['line_user_id'] !== $uid) {
+                line_reply($reply, [line_text('ไม่พบรายการต่อเมลนี้ กรุณาทักแอดมินค่ะ')]);
+                return true;
+            }
+            if ($r['status'] !== 'active') {
+                line_reply($reply, [line_text("รับทราบแล้วค่ะ รายการนี้แจ้งไม่ต่ออายุไว้แล้ว\nใช้งานได้ถึง " . renew_date_th($r['expires_on']))]);
+                return true;
+            }
+            if ($act === 'stop') {
+                line_reply($reply, [['type' => 'template', 'altText' => 'ยืนยันไม่ต่ออายุ ' . $r['customer_email'],
+                    'template' => ['type' => 'confirm', 'text' => mb_substr("ยืนยันไม่ต่ออายุ\n{$r['customer_email']} ใช่ไหมคะ?", 0, 240), 'actions' => [
+                        ['type' => 'postback', 'label' => 'ยืนยันไม่ต่อ', 'data' => 'a=stopok&r=' . $r['id'], 'displayText' => 'ยืนยันไม่ต่ออายุ'],
+                        ['type' => 'postback', 'label' => 'ยกเลิก', 'data' => 'a=nop', 'displayText' => 'ยกเลิก'],
+                    ]]]]);
+                return true;
+            }
+            $db = renew_db();
+            $note = trim($r['note'] . ' · ลูกค้าแจ้งไม่ต่อ ' . date('d/m'), ' ·');
+            $db->prepare("UPDATE renewals SET status = 'cancelled', note = ?, updated_at = ? WHERE id = ? AND status = 'active'")->execute([mb_substr($note, 0, 500), time(), $r['id']]);
+            $db->prepare("UPDATE renew_payments SET status = 'cancelled' WHERE renewal_id = ? AND status = 'pending'")->execute([$r['id']]);
+            renew_notify_admin('🚫 ลูกค้าแจ้งไม่ต่ออายุ', ["เมลลูกค้า: {$r['customer_email']}", 'fam: ' . ($r['shop_email'] !== '' ? $r['shop_email'] : '-'),
+                'หมดอายุ ' . renew_date_th($r['expires_on']) . ' — ลบเมลออกจาก fam หลังหมดอายุได้เลย', 'LINE: ' . renew_contact_name($uid)]);
+            line_reply($reply, [line_text("รับทราบค่ะ ระบบจะไม่แจ้งเตือนต่ออายุ {$r['customer_email']} อีก\nใช้งานได้ถึง " . renew_date_th($r['expires_on']) . "\n\nขอบคุณที่ใช้บริการนะคะ 💖")]);
+            return true;
+        }
+
+        if ($act === 'rn') {
             $r = renew_get((string)($d['r'] ?? ''));
             if (!$r || $r['line_user_id'] !== $uid || $r['status'] !== 'active') {
                 line_reply($reply, [line_text('ไม่พบรายการต่อเมลนี้ กรุณาพิมพ์ "ต่อเมล" แล้วเลือกใหม่ หรือทักแอดมินค่ะ')]);

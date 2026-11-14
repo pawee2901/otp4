@@ -97,6 +97,12 @@ function renew_schema($pdo) {
             is_admin     INT NOT NULL DEFAULT 0,
             last_seen    INT NOT NULL DEFAULT 0
         )",
+        "CREATE TABLE IF NOT EXISTS renew_files (
+            k          VARCHAR(64) NOT NULL PRIMARY KEY,
+            mime       VARCHAR(40) NOT NULL,
+            data       MEDIUMTEXT NOT NULL,
+            updated_at INT NOT NULL DEFAULT 0
+        )",
         "CREATE TABLE IF NOT EXISTS renew_log (
             id         VARCHAR(32) NOT NULL PRIMARY KEY,
             created_at INT NOT NULL,
@@ -127,6 +133,8 @@ function renew_setting_defaults() {
         'pay_name'         => '',      // ชื่อบัญชีผู้รับ (แสดงให้ลูกค้าเห็น)
         'receiver_type'    => '',      // Slip2Go checkReceiver (ไม่บังคับ) เช่น 02001 = พร้อมเพย์เบอร์มือถือ
         'receiver_account' => '',
+        'card_style'       => 'image', // image = การ์ดรูปของร้าน (เติมเมล/วันที่ลงในรูป) · basic = การ์ดข้อความ + ปุ่มแพ็กเกจ
+        'pay_before_days'  => '2',     // วันครบกำหนดชำระ = วันหมดอายุ - N วัน (แสดงในการ์ดรูป)
         'remind_days'      => '3',
         'grace_days'       => '3',
         'late_fee'         => '10',
@@ -397,10 +405,68 @@ function renew_flex($r, $title = null) {
     ];
 }
 
-function renew_flex_message($rows, $title = null) {
-    $bubbles = array_map(function ($r) use ($title) { return renew_flex($r, $title); }, array_slice($rows, 0, 10));
+// ---------------------------------------------------------------- การ์ดรูปของร้าน (รูปพื้นหลัง + เติมข้อความลงช่อง)
+// รูปที่แอดมินอัปโหลดเอง (เก็บในฐานข้อมูล) หรือรูปตั้งต้น static/renew_card.jpg
+function renew_card_custom() {
+    $st = renew_db()->prepare("SELECT mime, data, updated_at FROM renew_files WHERE k = 'card'");
+    $st->execute();
+    return $st->fetch() ?: null;
+}
+
+function renew_card_image_url() {
+    $c = renew_card_custom();
+    return $c ? renew_site_url() . '/renew_card.php?v=' . (int)$c['updated_at'] : renew_site_url() . '/static/renew_card.jpg';
+}
+
+// วันครบกำหนดชำระ = วันหมดอายุ - N วัน
+function renew_pay_due($r) {
+    return renew_add_days($r['expires_on'], -(int)renew_num('pay_before_days'));
+}
+
+// ตำแหน่งช่องในรูป (เปอร์เซ็นต์ของความกว้าง/สูงรูป 1:1) — ตรงกับรูปตั้งต้นของร้าน
+function renew_card_layout() {
+    return [
+        'email'  => ['top' => '27.3%', 'start' => '23.2%', 'width' => '56%',   'height' => '5.6%'],
+        'due'    => ['top' => '37.3%', 'start' => '39.6%', 'width' => '36.8%', 'height' => '5.6%'],
+        'expiry' => ['top' => '45.3%', 'start' => '30.9%', 'width' => '40%',   'height' => '5.6%'],
+        'stop'   => ['top' => '76%',   'start' => '4%',    'width' => '40%',   'height' => '21%'],
+        'renew'  => ['top' => '76%',   'start' => '51%',   'width' => '47%',   'height' => '21%'],
+    ];
+}
+
+function renew_image_card($r) {
+    $L = renew_card_layout();
+    $field = function ($pos, $text) {
+        return ['type' => 'box', 'layout' => 'vertical', 'position' => 'absolute', 'justifyContent' => 'center',
+                'offsetTop' => $pos['top'], 'offsetStart' => $pos['start'], 'width' => $pos['width'], 'height' => $pos['height'],
+                'contents' => [['type' => 'text', 'text' => $text, 'align' => 'center', 'weight' => 'bold', 'color' => '#5a2a2a',
+                                'size' => 'sm', 'adjustMode' => 'shrink-to-fit']]];
+    };
+    $tap = function ($pos, $data, $label) {
+        return ['type' => 'box', 'layout' => 'vertical', 'position' => 'absolute',
+                'offsetTop' => $pos['top'], 'offsetStart' => $pos['start'], 'width' => $pos['width'], 'height' => $pos['height'],
+                'contents' => [], 'action' => ['type' => 'postback', 'label' => $label, 'data' => $data, 'displayText' => $label]];
+    };
+    return [
+        'type' => 'bubble', 'size' => 'giga',
+        'body' => ['type' => 'box', 'layout' => 'vertical', 'paddingAll' => '0px', 'contents' => [
+            ['type' => 'image', 'url' => renew_card_image_url(), 'size' => 'full', 'aspectRatio' => '1:1', 'aspectMode' => 'cover'],
+            $field($L['email'], $r['customer_email']),
+            $field($L['due'], renew_date_th(renew_pay_due($r))),
+            $field($L['expiry'], renew_date_th($r['expires_on'])),
+            $tap($L['stop'], 'a=stop&r=' . $r['id'], 'ไม่ต้องการต่ออายุแล้ว'),
+            $tap($L['renew'], 'a=pick&r=' . $r['id'], 'ต่ออายุ ' . $r['customer_email']),
+        ]],
+    ];
+}
+
+function renew_flex_message($rows, $title = null, $style = null) {
+    $style = $style ?: renew_settings()['card_style'];
+    $bubbles = array_map(function ($r) use ($title, $style) { return $style === 'image' ? renew_image_card($r) : renew_flex($r, $title); }, array_slice($rows, 0, 10));
     if (!$bubbles) return null;
-    $alt = count($rows) === 1 ? 'ต่ออายุ ' . $rows[0]['customer_email'] . ' หมดอายุ ' . renew_date_th($rows[0]['expires_on']) : 'รายการต่อเมลของคุณ';
+    $alt = count($rows) === 1
+        ? ($style === 'image' ? 'แจ้งเตือนวันครบกำหนดชำระ ' . $rows[0]['customer_email'] . ' ชำระภายใน ' . renew_date_th(renew_pay_due($rows[0])) : 'ต่ออายุ ' . $rows[0]['customer_email'] . ' หมดอายุ ' . renew_date_th($rows[0]['expires_on']))
+        : 'รายการต่อเมลของคุณ';
     return ['type' => 'flex', 'altText' => $alt, 'contents' => count($bubbles) === 1 ? $bubbles[0] : ['type' => 'carousel', 'contents' => $bubbles]];
 }
 

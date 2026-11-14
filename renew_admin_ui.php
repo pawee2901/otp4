@@ -94,6 +94,33 @@
             </details>
         </div>
 
+        <div class="border-t border-gray-100 pt-4 space-y-3">
+            <p class="text-xs font-extrabold text-gray-800"><i class="fa-regular fa-image text-purple-600 mr-1"></i>การ์ดเตือนลูกค้าใน LINE</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">แบบการ์ด</span>
+                    <select id="rsCardStyle" onchange="renderRenewCardPreview()" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none bg-white">
+                        <option value="image">การ์ดรูปของร้าน (เติมเมล + วันที่ลงในรูป · ปุ่ม "กดต่ออายุ" / "ไม่ต้องการต่ออายุแล้ว")</option>
+                        <option value="basic">การ์ดข้อความ + ปุ่มเลือกแพ็กเกจ</option>
+                    </select></label>
+                <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">วันครบกำหนดชำระ = วันหมดอายุ − กี่วัน</span>
+                    <input id="rsPayBefore" type="number" min="0" oninput="renderRenewCardPreview()" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-3 items-start">
+                <div id="renewCardPreview" class="relative w-full max-w-[300px] rounded-2xl overflow-hidden border border-gray-200 flex-shrink-0"></div>
+                <div class="text-[11px] text-gray-500 space-y-2">
+                    <p>ตัวอย่างการ์ดที่ลูกค้าจะเห็นใน LINE — ระบบเติม <b>อีเมล / วันครบกำหนดชำระ / วันหมดอายุ</b> ลงในช่องให้เอง</p>
+                    <p><b>กดต่ออายุ</b> → ถ้ามีแพ็กเกจเดียวจะได้ QR ทันที · หลายแพ็กเกจจะให้เลือกก่อน<br><b>ไม่ต้องการต่ออายุแล้ว</b> → ถามยืนยัน แล้วหยุดเตือน + แจ้งแอดมินให้ลบเมลหลังหมดอายุ</p>
+                    <p>เปลี่ยนรูปได้ (JPG/PNG สี่เหลี่ยมจัตุรัส ไม่เกิน 1.5MB) — ช่องกรอกและปุ่มต้องอยู่ตำแหน่งเดิมเหมือนรูปตั้งต้น</p>
+                    <div class="flex flex-wrap gap-1.5">
+                        <label class="cursor-pointer text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"><i class="fa-solid fa-upload mr-1"></i>เปลี่ยนรูป
+                            <input type="file" accept="image/jpeg,image/png" class="hidden" onchange="uploadRenewCard(this)"></label>
+                        <button type="button" id="renewCardResetBtn" onclick="if(confirm('กลับไปใช้รูปตั้งต้น?'))renewAction('renew_card_reset',{})" class="hidden text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-500">ใช้รูปตั้งต้น</button>
+                        <button type="button" onclick="renewAction('renew_card_test',{},false)" class="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700"><i class="fa-brands fa-line mr-1"></i>ส่งตัวอย่างเข้า LINE แอดมิน</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 border-t border-gray-100 pt-4">
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">เตือนก่อนหมด (วัน)</span><input id="rsRemind" type="number" min="0" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">ต่อราคาปกติได้ถึง หมดอายุ + (วัน)</span><input id="rsGrace" type="number" min="0" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>
@@ -207,6 +234,9 @@
         document.getElementById('rsSecretSet').innerText = s.line_secret_set ? '✓ ตั้งแล้ว' : '';
         document.getElementById('rsSlipSet').innerText = s.slip2go_secret_set ? '✓ ตั้งแล้ว' : '';
         const set = (id, v) => { const el = document.getElementById(id); if (document.activeElement !== el) el.value = v; };
+        set('rsCardStyle', s.card_style || 'image'); set('rsPayBefore', s.pay_before_days);
+        document.getElementById('renewCardResetBtn').classList.toggle('hidden', !s.card_custom);
+        renderRenewCardPreview();
         set('rsOaId', s.line_oa_id); set('rsSlipMode', s.slip_mode || 'chat');
         document.getElementById('rsApiBox').classList.toggle('opacity-50', (s.slip_mode || 'chat') !== 'api'); set('rsForward', s.forward_webhook || ''); set('rsPromptpay', s.promptpay_id); set('rsPayName', s.pay_name);
         set('rsSlipUrl', s.slip2go_url); set('rsRecvType', s.receiver_type); set('rsRecvAcc', s.receiver_account);
@@ -453,10 +483,39 @@
         if (j) document.getElementById('renewInfoModal').classList.add('hidden');
     }
 
+    // ตัวอย่างการ์ด (ตำแหน่งเดียวกับ renew_card_layout() ใน renew_lib.php)
+    function renderRenewCardPreview() {
+        const box = document.getElementById('renewCardPreview');
+        if (!RENEW || !box) return;
+        if (document.getElementById('rsCardStyle').value !== 'image') {
+            box.innerHTML = '<div class="p-4 text-[11px] text-gray-500">การ์ดข้อความ: ชื่อแพ็กเกจ, fam, เมล, วันหมดอายุ, เงื่อนไขค่าต่อช้า และปุ่มแพ็กเกจ (สูงสุด 4 ปุ่ม)</div>';
+            return;
+        }
+        const before = Math.max(0, +document.getElementById('rsPayBefore').value || 0);
+        const [y, m, d] = RENEW.today.split('-').map(Number);
+        const th = (dt) => dt.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+        const exp = new Date(y, m - 1, d + 3), due = new Date(y, m - 1, d + 3 - before);
+        const f = (t, l, w, text) => `<div style="position:absolute;top:${t};left:${l};width:${w};height:5.6%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:10px;color:#5a2a2a;white-space:nowrap;overflow:hidden">${rEsc(text)}</div>`;
+        box.innerHTML = `<img src="${rEsc(RENEW.settings.card_url)}" class="w-full block" alt="การ์ดเตือน">`
+            + f('27.3%', '23.2%', '56%', 'customer.email@gmail.com') + f('37.3%', '39.6%', '36.8%', th(due)) + f('45.3%', '30.9%', '40%', th(exp));
+    }
+
+    async function uploadRenewCard(input) {
+        const file = input.files[0];
+        if (!file) return;
+        if (file.size > 1536 * 1024) { alert('ไฟล์ใหญ่เกิน 1.5MB'); input.value = ''; return; }
+        const fd = new FormData(); fd.append('card', file);
+        try {
+            const j = await (await fetch('admin.php?action=renew_card_upload', { method: 'POST', body: fd })).json();
+            if (!j.success) alert(j.message || 'อัปโหลดไม่สำเร็จ'); else { showNotification(j.message); await loadRenew(); }
+        } catch (e) { alert('เกิดข้อผิดพลาดเครือข่าย'); }
+        input.value = '';
+    }
+
     async function saveRenewSettings() {
         const v = (id) => document.getElementById(id).value.trim();
         const j = await renewAction('renew_settings_save', {
-            slip_mode: v('rsSlipMode'), line_token: v('rsLineToken'), line_secret: v('rsLineSecret'), line_oa_id: v('rsOaId'), forward_webhook: v('rsForward'),
+            card_style: v('rsCardStyle'), pay_before_days: v('rsPayBefore'), slip_mode: v('rsSlipMode'), line_token: v('rsLineToken'), line_secret: v('rsLineSecret'), line_oa_id: v('rsOaId'), forward_webhook: v('rsForward'),
             promptpay_id: v('rsPromptpay'), pay_name: v('rsPayName'), slip2go_url: v('rsSlipUrl'), slip2go_secret: v('rsSlipSecret'),
             receiver_type: v('rsRecvType'), receiver_account: v('rsRecvAcc'),
             remind_days: v('rsRemind'), grace_days: v('rsGrace'), late_fee: v('rsLate'), removed_fee: v('rsRemoved'), fam_size: v('rsFamSize'),

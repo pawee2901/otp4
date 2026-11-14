@@ -68,6 +68,9 @@ try {
             'settings' => [
                 'line_token_set' => $st['line_token'] !== '', 'line_secret_set' => $st['line_secret'] !== '',
                 'slip2go_secret_set' => $st['slip2go_secret'] !== '',
+                'card_style' => $st['card_style'], 'pay_before_days' => (int)$st['pay_before_days'],
+                'card_url' => ($cc = renew_card_custom()) ? 'renew_card.php?v=' . (int)$cc['updated_at'] : 'static/renew_card.jpg',
+                'card_custom' => (bool)$cc,
                 'slip_mode' => $st['slip_mode'], 'line_oa_id' => $st['line_oa_id'], 'forward_webhook' => $st['forward_webhook'], 'slip2go_url' => $st['slip2go_url'],
                 'promptpay_id' => $st['promptpay_id'], 'pay_name' => $st['pay_name'],
                 'receiver_type' => $st['receiver_type'], 'receiver_account' => $st['receiver_account'],
@@ -180,6 +183,37 @@ try {
         renew_out(['success' => true, 'message' => 'ปฏิเสธสลิปแล้ว']);
     }
 
+    // ---------- รูปการ์ดเตือน ----------
+    if ($action === 'renew_card_upload') {
+        $f = $_FILES['card'] ?? null;
+        if (!$f || $f['error'] !== UPLOAD_ERR_OK) renew_fail('อัปโหลดไม่สำเร็จ (ไฟล์ต้องไม่เกิน 1.5MB)');
+        $info = @getimagesize($f['tmp_name']);
+        $mime = $info['mime'] ?? '';
+        if (!in_array($mime, ['image/jpeg', 'image/png'], true)) renew_fail('รองรับเฉพาะไฟล์ JPG หรือ PNG');
+        if (filesize($f['tmp_name']) > 1536 * 1024) renew_fail('ไฟล์ใหญ่เกิน 1.5MB');
+        if (abs($info[0] - $info[1]) > max(4, $info[0] * 0.02)) renew_fail('รูปต้องเป็นสี่เหลี่ยมจัตุรัส (กว้าง = สูง) แบบเดียวกับรูปตั้งต้น เพื่อให้ข้อความลงช่องพอดี');
+        $data = base64_encode(file_get_contents($f['tmp_name']));
+        $db->prepare("DELETE FROM renew_files WHERE k = 'card'")->execute();
+        $db->prepare("INSERT INTO renew_files (k, mime, data, updated_at) VALUES ('card', ?, ?, ?)")->execute([$mime, $data, time()]);
+        renew_out(['success' => true, 'message' => 'อัปโหลดรูปการ์ดแล้ว']);
+    }
+    if ($action === 'renew_card_reset') {
+        $db->prepare("DELETE FROM renew_files WHERE k = 'card'")->execute();
+        renew_out(['success' => true, 'message' => 'กลับไปใช้รูปการ์ดตั้งต้นแล้ว']);
+    }
+    if ($action === 'renew_card_test') {
+        // ส่งการ์ดตัวอย่างหาแอดมินที่ลงทะเบียนรับแจ้งเตือน (ดูหน้าตาจริงใน LINE)
+        $admins = $db->query("SELECT line_user_id FROM renew_contacts WHERE is_admin = 1")->fetchAll(PDO::FETCH_COLUMN);
+        if (!$admins) renew_fail('ยังไม่มีแอดมินรับแจ้งเตือน — พิมพ์รหัสแอดมินในแชท LINE ร้านก่อน');
+        $sample = ['id' => 'sample', 'customer_email' => 'customer.email@gmail.com', 'expires_on' => renew_today(3), 'shop_email' => 'fam@gmail.com',
+                   'package_id' => '', 'removed_at' => null];
+        $msg = renew_flex_message([$sample]);
+        $sent = 0;
+        foreach ($admins as $uid) if (line_push($uid, [line_text('ตัวอย่างการ์ดเตือนต่ออายุ (ปุ่มในการ์ดตัวอย่างกดใช้งานจริงไม่ได้)'), $msg])) $sent++;
+        if (!$sent) renew_fail('ส่ง LINE ไม่สำเร็จ — ตรวจ Channel access token แล้วลองใหม่');
+        renew_out(['success' => true, 'message' => "ส่งการ์ดตัวอย่างให้แอดมิน $sent คนแล้ว ดูใน LINE ได้เลย"]);
+    }
+
     // ---------- แพ็กเกจ ----------
     if ($action === 'renew_pkg_save') {
         $id = renew_post('id');
@@ -211,9 +245,10 @@ try {
     // ---------- ตั้งค่า ----------
     if ($action === 'renew_settings_save') {
         if (isset($_POST['slip_mode'])) $_POST['slip_mode'] = renew_post('slip_mode') === 'api' ? 'api' : 'chat';
-        $plain = ['slip_mode', 'line_oa_id', 'forward_webhook', 'slip2go_url', 'promptpay_id', 'pay_name', 'receiver_type', 'receiver_account'];
+        if (isset($_POST['card_style'])) $_POST['card_style'] = renew_post('card_style') === 'basic' ? 'basic' : 'image';
+        $plain = ['slip_mode', 'card_style', 'line_oa_id', 'forward_webhook', 'slip2go_url', 'promptpay_id', 'pay_name', 'receiver_type', 'receiver_account'];
         $secret = ['line_token', 'line_secret', 'slip2go_secret']; // เว้นว่าง = ไม่เปลี่ยน
-        $nums = ['remind_days' => [0, 30], 'grace_days' => [0, 60], 'late_fee' => [0, 100000], 'removed_fee' => [0, 100000], 'fam_size' => [1, 100]];
+        $nums = ['pay_before_days' => [0, 30], 'remind_days' => [0, 30], 'grace_days' => [0, 60], 'late_fee' => [0, 100000], 'removed_fee' => [0, 100000], 'fam_size' => [1, 100]];
         if (isset($_POST['promptpay_id'])) {
             $pp = preg_replace('/\D/', '', renew_post('promptpay_id'));
             if ($pp !== '' && !in_array(strlen($pp), [10, 13, 15], true)) renew_fail('พร้อมเพย์ต้องเป็นเบอร์มือถือ 10 หลัก / เลข 13 หลัก / e-Wallet 15 หลัก');
