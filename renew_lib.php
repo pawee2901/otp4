@@ -134,7 +134,8 @@ function renew_setting_defaults() {
         'receiver_type'    => '',      // Slip2Go checkReceiver (ไม่บังคับ) เช่น 02001 = พร้อมเพย์เบอร์มือถือ
         'receiver_account' => '',
         'card_style'       => 'image', // image = การ์ดรูปของร้าน (เติมเมล/วันที่ลงในรูป) · basic = การ์ดข้อความ + ปุ่มแพ็กเกจ
-        'pay_before_days'  => '2',     // วันครบกำหนดชำระ = วันหมดอายุ - N วัน (แสดงในการ์ดรูป)
+        'pay_before_days'  => '2',
+        'pay_style'        => 'image', // image = รูป How To Pay ของร้าน + QR ยอดพอดีวางทับช่อง QR · qr = รูป QR อย่างเดียว     // วันครบกำหนดชำระ = วันหมดอายุ - N วัน (แสดงในการ์ดรูป)
         'remind_days'      => '3',
         'grace_days'       => '3',
         'late_fee'         => '10',
@@ -407,15 +408,27 @@ function renew_flex($r, $title = null) {
 
 // ---------------------------------------------------------------- การ์ดรูปของร้าน (รูปพื้นหลัง + เติมข้อความลงช่อง)
 // รูปที่แอดมินอัปโหลดเอง (เก็บในฐานข้อมูล) หรือรูปตั้งต้น static/renew_card.jpg
-function renew_card_custom() {
-    $st = renew_db()->prepare("SELECT mime, data, updated_at FROM renew_files WHERE k = 'card'");
-    $st->execute();
+// รูปที่แอดมินอัปโหลดเอง: k = card (การ์ดเตือน) / pay (หน้าวิธีชำระเงิน)
+const RENEW_IMAGE_DEFAULTS = ['card' => 'static/renew_card.jpg', 'pay' => 'static/renew_pay.jpg'];
+
+function renew_file($k) {
+    $st = renew_db()->prepare("SELECT mime, data, updated_at FROM renew_files WHERE k = ?");
+    $st->execute([$k]);
     return $st->fetch() ?: null;
 }
 
+function renew_card_custom() {
+    return renew_file('card');
+}
+
+// path สัมพัทธ์ (ใช้ในหน้าแอดมิน) ของรูปที่ใช้อยู่ตอนนี้
+function renew_image_path($k) {
+    $c = renew_file($k);
+    return $c ? 'renew_card.php?k=' . $k . '&v=' . (int)$c['updated_at'] : RENEW_IMAGE_DEFAULTS[$k];
+}
+
 function renew_card_image_url() {
-    $c = renew_card_custom();
-    return $c ? renew_site_url() . '/renew_card.php?v=' . (int)$c['updated_at'] : renew_site_url() . '/static/renew_card.jpg';
+    return renew_site_url() . '/' . renew_image_path('card');
 }
 
 // วันครบกำหนดชำระ = วันหมดอายุ - N วัน
@@ -524,6 +537,20 @@ function renew_create_payment($r, $package_id, $line_user_id) {
     return ['ok' => true, 'id' => $id, 'amount' => $amount, 'package' => $pkg, 'fee' => $f];
 }
 
+// หน้าวิธีชำระเงินแบบรูปของร้าน: รูปพื้นหลัง + QR ยอดพอดีวางทับช่อง QR (แตะ QR = เปิดรูปใหญ่ไว้บันทึก/สแกน)
+function renew_pay_flex($qr_url, $amount) {
+    return ['type' => 'flex', 'altText' => 'ชำระค่าต่ออายุ ' . renew_baht($amount) . ' — สแกน QR เพื่อโอน', 'contents' => [
+        'type' => 'bubble', 'size' => 'giga',
+        'body' => ['type' => 'box', 'layout' => 'vertical', 'paddingAll' => '0px', 'contents' => [
+            ['type' => 'image', 'url' => renew_site_url() . '/' . renew_image_path('pay'), 'size' => 'full', 'aspectRatio' => '1:1', 'aspectMode' => 'cover'],
+            ['type' => 'box', 'layout' => 'vertical', 'position' => 'absolute', 'backgroundColor' => '#FFFFFF', 'cornerRadius' => '6px',
+             'offsetTop' => '36.3%', 'offsetStart' => '62.3%', 'width' => '31.6%', 'height' => '31.6%',
+             'action' => ['type' => 'uri', 'label' => 'เปิด QR', 'uri' => $qr_url],
+             'contents' => [['type' => 'image', 'url' => $qr_url, 'size' => 'full', 'aspectRatio' => '1:1', 'aspectMode' => 'fit']]],
+        ]],
+    ]];
+}
+
 function renew_payment_messages($pay, $r) {
     $st = renew_settings();
     $qr_url = renew_site_url() . '/renew_qr.php?id=' . $pay['id'] . '&t=' . renew_qr_sig($pay['id']);
@@ -532,11 +559,12 @@ function renew_payment_messages($pay, $r) {
          . ($pay['fee']['fee'] > 0 ? "ค่า{$pay['fee']['why']}: " . renew_baht($pay['fee']['fee']) . "\n" : '')
          . "ยอดโอน: " . renew_baht($pay['amount']) . "\n"
          . ($st['pay_name'] !== '' ? "ชื่อบัญชี: {$st['pay_name']}\n" : '')
-         . "\nสแกน QR ด้านบนจ่ายยอดนี้พอดี แล้ว \"ส่งรูปสลิป\" ในแชทนี้ได้เลยค่ะ "
+         . "\nสแกน QR ด้านบนจ่ายยอดนี้พอดี" . ($st['pay_style'] === 'image' ? ' (แตะที่ QR เพื่อเปิดรูปใหญ่/บันทึกรูป)' : '') . " แล้ว \"ส่งรูปสลิป\" ในแชทนี้ได้เลยค่ะ "
          . ($st['slip_mode'] === 'api' ? "ระบบจะต่ออายุให้อัตโนมัติ\n" : "ตรวจสลิปแล้วแอดมินจะยืนยันการต่ออายุให้ค่ะ\n")
          . "(QR ใช้ได้ " . (RENEW_QR_TTL / 60) . " นาที)";
     return [
-        ['type' => 'image', 'originalContentUrl' => $qr_url, 'previewImageUrl' => $qr_url],
+        $st['pay_style'] === 'image' ? renew_pay_flex($qr_url, $pay['amount'])
+            : ['type' => 'image', 'originalContentUrl' => $qr_url, 'previewImageUrl' => $qr_url],
         line_text($txt),
     ];
 }

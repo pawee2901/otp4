@@ -113,9 +113,30 @@
                     <p>เปลี่ยนรูปได้ (JPG/PNG สี่เหลี่ยมจัตุรัส ไม่เกิน 1.5MB) — ช่องกรอกและปุ่มต้องอยู่ตำแหน่งเดิมเหมือนรูปตั้งต้น</p>
                     <div class="flex flex-wrap gap-1.5">
                         <label class="cursor-pointer text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"><i class="fa-solid fa-upload mr-1"></i>เปลี่ยนรูป
-                            <input type="file" accept="image/jpeg,image/png" class="hidden" onchange="uploadRenewCard(this)"></label>
-                        <button type="button" id="renewCardResetBtn" onclick="if(confirm('กลับไปใช้รูปตั้งต้น?'))renewAction('renew_card_reset',{})" class="hidden text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-500">ใช้รูปตั้งต้น</button>
+                            <input type="file" accept="image/jpeg,image/png" class="hidden" onchange="uploadRenewCard(this, 'card')"></label>
+                        <button type="button" id="renewCardResetBtn" onclick="if(confirm('กลับไปใช้รูปตั้งต้น?'))renewAction('renew_card_reset',{k:'card'})" class="hidden text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-500">ใช้รูปตั้งต้น</button>
                         <button type="button" onclick="renewAction('renew_card_test',{},false)" class="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700"><i class="fa-brands fa-line mr-1"></i>ส่งตัวอย่างเข้า LINE แอดมิน</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="border-t border-gray-100 pt-4 space-y-3">
+            <p class="text-xs font-extrabold text-gray-800"><i class="fa-solid fa-qrcode text-purple-600 mr-1"></i>หน้าชำระเงิน (หลังลูกค้ากด "กดต่ออายุ")</p>
+            <label class="block space-y-1"><span class="text-[11px] font-bold text-gray-600">แบบหน้าชำระเงิน</span>
+                <select id="rsPayStyle" onchange="renderRenewPayPreview()" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none bg-white">
+                    <option value="image">รูป How To Pay ของร้าน + QR ยอดพอดีวางทับช่อง QR</option>
+                    <option value="qr">รูป QR อย่างเดียว</option>
+                </select></label>
+            <div class="flex flex-col sm:flex-row gap-3 items-start">
+                <div id="renewPayPreview" class="relative w-full max-w-[300px] rounded-2xl overflow-hidden border border-gray-200 flex-shrink-0"></div>
+                <div class="text-[11px] text-gray-500 space-y-2">
+                    <p>ระบบสร้าง <b>QR พร้อมเพย์ยอดพอดี</b> ของแต่ละรายการ แล้ววางทับช่อง QR ในรูป ลูกค้าแตะ QR เพื่อเปิดรูปใหญ่ไว้บันทึก/สแกนได้ ตามด้วยข้อความบอกยอดโอน</p>
+                    <p>⚠️ QR ใช้ <b>พร้อมเพย์ที่ตั้งไว้ด้านบน</b> — ต้องเป็นบัญชีเดียวกับชื่อในรูป</p>
+                    <div class="flex flex-wrap gap-1.5">
+                        <label class="cursor-pointer text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"><i class="fa-solid fa-upload mr-1"></i>เปลี่ยนรูป
+                            <input type="file" accept="image/jpeg,image/png" class="hidden" onchange="uploadRenewCard(this, 'pay')"></label>
+                        <button type="button" id="renewPayResetBtn" onclick="if(confirm('กลับไปใช้รูปตั้งต้น?'))renewAction('renew_card_reset',{k:'pay'})" class="hidden text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-500">ใช้รูปตั้งต้น</button>
                     </div>
                 </div>
             </div>
@@ -237,6 +258,9 @@
         set('rsCardStyle', s.card_style || 'image'); set('rsPayBefore', s.pay_before_days);
         document.getElementById('renewCardResetBtn').classList.toggle('hidden', !s.card_custom);
         renderRenewCardPreview();
+        set('rsPayStyle', s.pay_style || 'image');
+        document.getElementById('renewPayResetBtn').classList.toggle('hidden', !s.pay_custom);
+        renderRenewPayPreview();
         set('rsOaId', s.line_oa_id); set('rsSlipMode', s.slip_mode || 'chat');
         document.getElementById('rsApiBox').classList.toggle('opacity-50', (s.slip_mode || 'chat') !== 'api'); set('rsForward', s.forward_webhook || ''); set('rsPromptpay', s.promptpay_id); set('rsPayName', s.pay_name);
         set('rsSlipUrl', s.slip2go_url); set('rsRecvType', s.receiver_type); set('rsRecvAcc', s.receiver_account);
@@ -500,11 +524,20 @@
             + f('27.3%', '23.2%', '56%', 'customer.email@gmail.com') + f('37.3%', '39.6%', '36.8%', th(due)) + f('45.3%', '30.9%', '40%', th(exp));
     }
 
-    async function uploadRenewCard(input) {
+    function renderRenewPayPreview() {
+        const box = document.getElementById('renewPayPreview');
+        if (!RENEW || !box) return;
+        const qrBox = '<div class="flex items-center justify-center bg-white text-gray-400 text-[10px] font-bold" style="position:absolute;top:36.3%;left:62.3%;width:31.6%;height:31.6%;border-radius:6px;outline:2px dashed #a855f7"><span><i class="fa-solid fa-qrcode text-2xl block text-center text-purple-500"></i>QR ยอดพอดี</span></div>';
+        box.innerHTML = document.getElementById('rsPayStyle').value === 'image'
+            ? `<img src="${rEsc(RENEW.settings.pay_url)}" class="w-full block" alt="วิธีชำระเงิน">` + qrBox
+            : '<div class="p-4 text-[11px] text-gray-500">ส่งรูป QR พร้อมเพย์ยอดพอดี + ข้อความบอกยอด</div>';
+    }
+
+    async function uploadRenewCard(input, k = 'card') {
         const file = input.files[0];
         if (!file) return;
         if (file.size > 1536 * 1024) { alert('ไฟล์ใหญ่เกิน 1.5MB'); input.value = ''; return; }
-        const fd = new FormData(); fd.append('card', file);
+        const fd = new FormData(); fd.append('card', file); fd.append('k', k);
         try {
             const j = await (await fetch('admin.php?action=renew_card_upload', { method: 'POST', body: fd })).json();
             if (!j.success) alert(j.message || 'อัปโหลดไม่สำเร็จ'); else { showNotification(j.message); await loadRenew(); }
@@ -515,7 +548,7 @@
     async function saveRenewSettings() {
         const v = (id) => document.getElementById(id).value.trim();
         const j = await renewAction('renew_settings_save', {
-            card_style: v('rsCardStyle'), pay_before_days: v('rsPayBefore'), slip_mode: v('rsSlipMode'), line_token: v('rsLineToken'), line_secret: v('rsLineSecret'), line_oa_id: v('rsOaId'), forward_webhook: v('rsForward'),
+            pay_style: v('rsPayStyle'), card_style: v('rsCardStyle'), pay_before_days: v('rsPayBefore'), slip_mode: v('rsSlipMode'), line_token: v('rsLineToken'), line_secret: v('rsLineSecret'), line_oa_id: v('rsOaId'), forward_webhook: v('rsForward'),
             promptpay_id: v('rsPromptpay'), pay_name: v('rsPayName'), slip2go_url: v('rsSlipUrl'), slip2go_secret: v('rsSlipSecret'),
             receiver_type: v('rsRecvType'), receiver_account: v('rsRecvAcc'),
             remind_days: v('rsRemind'), grace_days: v('rsGrace'), late_fee: v('rsLate'), removed_fee: v('rsRemoved'), fam_size: v('rsFamSize'),
