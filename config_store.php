@@ -421,3 +421,102 @@ function save_config($config) {
         return false;
     }
 }
+
+// แปลข้อผิดพลาดจาก Microsoft (ตอนขอ token / อ่านกล่องเมล) เป็นภาษาไทยพร้อมวิธีแก้
+// คืน ['kind' => 'reconnect'|'secret'|'mailbox'|'other', 'message' => '...']
+function ms_graph_explain_error($stage, $http_code, $body) {
+    $body = (string)$body;
+    $j = json_decode($body, true);
+    $code = is_array($j) ? (string)($j['error']['code'] ?? $j['error'] ?? '') : '';
+    $desc = is_array($j) ? (string)($j['error_description'] ?? $j['error']['message'] ?? '') : '';
+    if ($http_code === 0) {
+        return ['kind' => 'other', 'message' => 'เซิร์ฟเวอร์ติดต่อ Microsoft ไม่ได้ (เครือข่ายขัดข้อง/หมดเวลา) ลองใหม่อีกครั้ง'];
+    }
+    if ($stage === 'token') {
+        if ($code === 'invalid_client' || preg_match('/AADSTS(7000215|7000222|700016|7000218)/', $desc)) {
+            return ['kind' => 'secret', 'message' => 'Client Secret / Client ID ไม่ถูกต้องหรือหมดอายุ → เข้า Azure Portal สร้าง Client Secret ใหม่ แล้วใส่ในแท็บ "ตั้งค่า API" (ช่อง Microsoft App) — ใช้ "Value" ไม่ใช่ "Secret ID"'];
+        }
+        if ($code === 'invalid_grant' || preg_match('/AADSTS(70000|700082|50173|50076|50079|65001|70008)/', $desc)) {
+            return ['kind' => 'reconnect', 'message' => 'การเชื่อมต่อของบัญชีนี้หมดอายุ/ถูกยกเลิก (เช่น เปลี่ยนรหัสผ่าน Microsoft, ไม่ได้ใช้นาน หรือยกเลิกสิทธิ์แอป) → กดปุ่ม "เชื่อมต่อ Hotmail" แล้วล็อกอินบัญชีนี้ใหม่ (รหัส 4 หลักเดิมยังอยู่)'];
+        }
+    } else {
+        if (stripos($body, 'MailboxNotEnabledForRESTAPI') !== false || stripos($body, 'MailboxNotHostedInExchangeOnline') !== false) {
+            return ['kind' => 'mailbox', 'message' => 'กล่องเมลของบัญชีนี้ยังไม่เปิดใช้งาน → ล็อกอินบัญชีนี้ที่ outlook.live.com 1 ครั้ง (เปิดกล่องเมลให้ขึ้น) แล้วลองใหม่'];
+        }
+        if ($http_code === 401 || $http_code === 403) {
+            return ['kind' => 'reconnect', 'message' => 'บัญชีนี้ไม่ได้ให้สิทธิ์อ่านอีเมล → กด "เชื่อมต่อ Hotmail" ใหม่ และกดยอมรับสิทธิ์ทั้งหมด'];
+        }
+        if ($http_code === 429) {
+            return ['kind' => 'other', 'message' => 'Microsoft จำกัดการเรียกใช้ชั่วคราว (ขอถี่เกินไป) รอสักครู่แล้วลองใหม่'];
+        }
+    }
+    return ['kind' => 'other', 'message' => 'Microsoft ตอบกลับผิดพลาด (HTTP ' . $http_code . ($code !== '' ? ', ' . $code : '') . ')' . ($desc !== '' ? ': ' . mb_substr($desc, 0, 200) : '')];
+}
+
+// ขอ access token ใหม่จาก refresh token ของบัญชี Hotmail/Outlook
+// คืน ['ok' => bool, 'access_token' => ..., 'refresh_token' => (ตัวใหม่ถ้ามี), 'error' => ms_graph_explain_error(...)]
+function ms_graph_refresh($client_id, $client_secret, $refresh_token) {
+    $ch = curl_init('https://login.microsoftonline.com/consumers/oauth2/v2.0/token');
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => http_build_query([
+            'client_id'     => $client_id,
+            'client_secret' => $client_secret,
+            'refresh_token' => $refresh_token,
+            'grant_type'    => 'refresh_token',
+            'scope'         => 'offline_access Mail.Read',
+        ]),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 8,
+    ]);
+    $res = curl_exec($ch);
+    $http = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    $data = json_decode((string)$res, true);
+    if ($http !== 200 || empty($data['access_token'])) {
+        return ['ok' => false, 'error' => ms_graph_explain_error('token', $http, $res), 'raw' => substr((string)$res, 0, 300)];
+    }
+    return ['ok' => true, 'access_token' => $data['access_token'], 'refresh_token' => $data['refresh_token'] ?? ''];
+}
+
+// อ่านอีเมลล่าสุดของบัญชี (ทุกโฟลเดอร์ รวมจดหมายขยะ) — คืน ['ok' => bool, 'messages' => [...], 'error' => ...]
+function ms_graph_list_messages($access_token, $top = 15, $with_body = true) {
+    $query = http_build_query([
+        '$top'     => $top,
+        '$orderby' => 'receivedDateTime desc',
+        '$select'  => 'subject,from,receivedDateTime,parentFolderId' . ($with_body ? ',body' : ''),
+    ]);
+    $ch = curl_init('https://graph.microsoft.com/v1.0/me/messages?' . $query);
+    curl_setopt_array($ch, [
+        CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $access_token],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 8,
+    ]);
+    $res = curl_exec($ch);
+    $http = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    $data = json_decode((string)$res, true);
+    if ($http !== 200 || !is_array($data)) {
+        return ['ok' => false, 'error' => ms_graph_explain_error('mail', $http, $res), 'raw' => substr((string)$res, 0, 300)];
+    }
+    return ['ok' => true, 'messages' => $data['value'] ?? []];
+}
+
+// บันทึก refresh token ตัวใหม่ (Microsoft ออกใหม่ทุกครั้งที่ใช้) โดยอัปเดตเฉพาะแถวนั้น
+// ไม่ save_config ทั้งก้อน — กันไปทับข้อมูลที่แอดมินเพิ่งแก้ในคำขออื่นพร้อมกัน
+function ms_graph_store_refresh_token(&$config_data, $email, $new_token) {
+    if ($new_token === '') return;
+    foreach (($config_data['imap_emails'] ?? []) as $idx => $item) {
+        if (strtolower($item['email'] ?? '') === strtolower($email) && ($item['provider'] ?? '') === 'microsoft_graph') {
+            if (($item['refresh_token'] ?? '') === $new_token) return;
+            $config_data['imap_emails'][$idx]['refresh_token'] = $new_token;
+            try {
+                if (OTP_LOCAL_MODE) { local_save_config($config_data); return; }
+                db_connect()->prepare("UPDATE imap_emails SET refresh_token = ? WHERE id = ?")->execute([$new_token, $item['id']]);
+            } catch (Throwable $e) {
+                error_log('[OTP] store refresh token failed: ' . $e->getMessage());
+            }
+            return;
+        }
+    }
+}

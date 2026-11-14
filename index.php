@@ -640,6 +640,9 @@ $loader_txt = trim((string)($config['loader_text'] ?? '')) !== '' ? $config['loa
                         } else if (data.success === false && data.pin_error) {
                             handlePinError(data);
                             stopOTPPolling();
+                        } else if (data.success === false && data.ms_broken) {
+                            showError(data.message);
+                            stopOTPPolling();
                         }
                         // success:false แบบอื่น (เช่น ยังไม่พบอีเมล) ให้รอรอบถัดไปต่อ
                     }
@@ -692,7 +695,7 @@ $loader_txt = trim((string)($config['loader_text'] ?? '')) !== '' ? $config['loa
                     handlePinError(data);
                     return;
                 }
-                if (data.success === false && data.message && /ล็อก/.test(data.message)) {
+                if (data.success === false && data.message && (data.ms_broken || /ล็อก/.test(data.message))) {
                     statusBox.classList.add('hidden');
                     showError(data.message);
                     return;

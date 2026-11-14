@@ -501,6 +501,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
 
+    // --- Action: ทดสอบการเชื่อมต่อบัญชี Hotmail/Outlook (Microsoft Graph) — บอกสาเหตุจริงถ้าใช้ไม่ได้ ---
+    if ($action === 'test_ms_account') {
+        header('Content-Type: application/json');
+        $id = $_POST['id'] ?? '';
+        $acc = null;
+        foreach (($config['imap_emails'] ?? []) as $item) {
+            if (($item['id'] ?? '') === $id) { $acc = $item; break; }
+        }
+        if (!$acc || ($acc['provider'] ?? '') !== 'microsoft_graph') {
+            echo json_encode(['success' => false, 'message' => 'ไม่พบบัญชี Hotmail ที่เชื่อมผ่าน Microsoft']);
+            exit;
+        }
+        $notes = [];
+        if (empty($acc['active'])) $notes[] = 'บัญชีนี้ถูก "ปิดใช้งาน" อยู่ (สวิตช์บนการ์ด)';
+        if (($acc['access_pin'] ?? '') === '') $notes[] = 'ยังไม่ได้ตั้งรหัส 4 หลัก ลูกค้าจะขอรหัสไม่ได้';
+        $cid = $config['microsoft_oauth']['client_id'] ?? '';
+        $csec = $config['microsoft_oauth']['client_secret'] ?? '';
+        if ($cid === '' || $csec === '') {
+            echo json_encode(['success' => false, 'message' => 'ยังไม่ได้ใส่ Client ID / Client Secret ในแท็บตั้งค่า API', 'notes' => $notes]);
+            exit;
+        }
+        if (empty($acc['refresh_token'])) {
+            echo json_encode(['success' => false, 'message' => 'บัญชีนี้ไม่มีข้อมูลการเชื่อมต่อ → กด "เชื่อมต่อ Hotmail" แล้วล็อกอินบัญชีนี้ใหม่', 'notes' => $notes]);
+            exit;
+        }
+        $tok = ms_graph_refresh($cid, $csec, $acc['refresh_token']);
+        if (!$tok['ok']) {
+            echo json_encode(['success' => false, 'step' => 'token', 'message' => $tok['error']['message'], 'raw' => $tok['raw'], 'notes' => $notes]);
+            exit;
+        }
+        ms_graph_store_refresh_token($config, $acc['email'], $tok['refresh_token']);
+        $list = ms_graph_list_messages($tok['access_token'], 10, false);
+        if (!$list['ok']) {
+            echo json_encode(['success' => false, 'step' => 'mail', 'message' => $list['error']['message'], 'raw' => $list['raw'], 'notes' => $notes]);
+            exit;
+        }
+        $msgs = [];
+        foreach ($list['messages'] as $m) {
+            $ts = strtotime($m['receivedDateTime'] ?? '') ?: 0;
+            $dt = new DateTime('@' . $ts);
+            $dt->setTimezone(new DateTimeZone('Asia/Bangkok'));
+            $msgs[] = [
+                'time'    => $dt->format('d/m H:i'),
+                'age_min' => (int)floor((time() - $ts) / 60),
+                'from'    => $m['from']['emailAddress']['address'] ?? '',
+                'subject' => $m['subject'] ?? '',
+            ];
+        }
+        echo json_encode(['success' => true, 'message' => 'เชื่อมต่อปกติ อ่านกล่องเมลได้', 'messages' => $msgs, 'notes' => $notes]);
+        exit;
+    }
+
     // --- Action: บันทึกเพลงพื้นหลัง (ลิงก์ YouTube) + ข้อความตัวโหลด ---
     if ($action === 'save_media') {
         header('Content-Type: application/json');
@@ -790,11 +842,22 @@ function render_admin_email_card($item, $app_options, $is_ms) {
                     <input type="checkbox" <?php echo $active ? 'checked' : ''; ?> onchange="toggleEmailActive('<?php echo $id; ?>', this.checked)" class="sr-only peer">
                     <div class="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
                 </label>
+                <?php if (($item['provider'] ?? '') === 'microsoft_graph'): ?>
+                <button type="button" onclick="testMsAccount('<?php echo $id; ?>', '<?php echo $email; ?>')" title="ทดสอบการเชื่อมต่อ Hotmail (บอกสาเหตุถ้ารับ OTP ไม่ได้)" class="h-7 px-2 text-[10px] font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg flex items-center gap-1 transition-all">
+                    <i class="fa-solid fa-stethoscope"></i><span>ทดสอบ</span>
+                </button>
+                <?php endif; ?>
                 <button onclick="deleteEmail('<?php echo $id; ?>')" title="ลบอีเมลนี้" class="w-7 h-7 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg flex items-center justify-center transition-all">
                     <i class="fa-regular fa-trash-can text-xs"></i>
                 </button>
             </div>
         </div>
+        <?php if (($item['provider'] ?? '') !== 'microsoft_graph' && preg_match('/@(outlook|hotmail|live|msn)\./i', $item['email'] ?? '')): ?>
+        <a href="admin.php?action=connect_microsoft" class="flex items-start gap-1.5 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 hover:bg-amber-100">
+            <i class="fa-solid fa-triangle-exclamation mt-0.5"></i>
+            <span>อีเมล Outlook นี้ยังไม่ได้เชื่อมผ่าน Microsoft — ระบบจะอ่านกล่องเมลไม่ได้ · กดที่นี่แล้วล็อกอินบัญชีนี้ (รหัส 4 หลักเดิมยังอยู่)</span>
+        </a>
+        <?php endif; ?>
         <div class="flex flex-wrap items-center gap-1.5">
             <button type="button" onclick="editEmailPin('<?php echo $id; ?>', '<?php echo $email; ?>', '<?php echo htmlspecialchars($pin); ?>')" title="รหัส 4 หลักที่ลูกค้าต้องกรอกก่อนกดขอรหัส"
                     class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border <?php echo $pin !== '' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-500 text-white border-rose-500 hover:bg-rose-600'; ?>">
@@ -1691,6 +1754,20 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
     </div>
 
     <!-- JavaScript Logic -->
+    <!-- Modal: ผลทดสอบการเชื่อมต่อ Hotmail -->
+    <div id="msTestModal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onclick="if(event.target===this)closeMsTestModal()">
+        <div class="bg-white rounded-3xl w-full max-w-md p-5 space-y-3 shadow-xl">
+            <div class="flex items-center justify-between gap-2">
+                <div class="min-w-0">
+                    <p class="text-sm font-extrabold text-gray-900"><i class="fa-brands fa-microsoft text-sky-600 mr-1"></i>ทดสอบการเชื่อมต่อ Hotmail</p>
+                    <p id="msTestEmail" class="text-[11px] text-gray-400 truncate"></p>
+                </div>
+                <button type="button" onclick="closeMsTestModal()" class="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100 flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="msTestBody"></div>
+        </div>
+    </div>
+
     <script>
 
         function switchTab(tabName) {
@@ -2193,6 +2270,39 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
             } catch (err) {
                 alert('เกิดข้อผิดพลาดในการลบรายการ');
             }
+        }
+
+        // --- ทดสอบการเชื่อมต่อ Hotmail ---
+        function escHtml(t) { const d = document.createElement('div'); d.innerText = t == null ? '' : String(t); return d.innerHTML; }
+        function closeMsTestModal() { document.getElementById('msTestModal').classList.add('hidden'); }
+        async function testMsAccount(id, email) {
+            const modal = document.getElementById('msTestModal');
+            const body = document.getElementById('msTestBody');
+            document.getElementById('msTestEmail').innerText = email;
+            body.innerHTML = '<div class="py-8 text-center text-gray-400 text-xs"><i class="fa-solid fa-circle-notch fa-spin mr-1"></i> กำลังทดสอบกับ Microsoft...</div>';
+            modal.classList.remove('hidden');
+            const fd = new FormData(); fd.append('id', id);
+            let data;
+            try { data = await (await fetch('admin.php?action=test_ms_account', { method: 'POST', body: fd })).json(); }
+            catch (e) { body.innerHTML = '<p class="text-rose-600 text-xs">เกิดข้อผิดพลาดเครือข่าย</p>'; return; }
+            let html = data.success
+                ? `<div class="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl p-3 text-xs font-bold"><i class="fa-solid fa-circle-check mr-1"></i>${escHtml(data.message)}</div>`
+                : `<div class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-xs font-bold leading-relaxed"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${escHtml(data.message)}</div>`;
+            (data.notes || []).forEach(n => { html += `<div class="bg-amber-50 border border-amber-200 text-amber-700 rounded-xl p-2.5 text-[11px] mt-2"><i class="fa-solid fa-circle-info mr-1"></i>${escHtml(n)}</div>`; });
+            if (data.raw) html += `<details class="mt-2 text-[10px] text-gray-400"><summary class="cursor-pointer">รายละเอียดทางเทคนิค</summary><pre class="whitespace-pre-wrap break-all mt-1">${escHtml(data.raw)}</pre></details>`;
+            if (data.success) {
+                const msgs = data.messages || [];
+                html += `<p class="text-xs font-bold text-gray-700 mt-4 mb-1.5">อีเมลล่าสุดในกล่อง (${msgs.length} ฉบับ)</p>`;
+                if (!msgs.length) html += '<p class="text-xs text-gray-400">ยังไม่มีอีเมลในกล่องเลย</p>';
+                html += '<div class="space-y-1.5 max-h-72 overflow-y-auto">' + msgs.map(m => {
+                    const old = m.age_min > 120;
+                    return `<div class="border ${old ? 'border-gray-100 bg-gray-50 text-gray-400' : 'border-sky-100 bg-sky-50/50 text-gray-700'} rounded-lg px-2.5 py-1.5 text-[11px]">
+                        <div class="flex justify-between gap-2"><span class="font-bold truncate">${escHtml(m.from)}</span><span class="flex-shrink-0">${escHtml(m.time)}</span></div>
+                        <div class="truncate">${escHtml(m.subject || '(ไม่มีหัวข้อ)')}</div></div>`;
+                }).join('') + '</div>';
+                html += '<p class="text-[10px] text-gray-400 mt-2 leading-relaxed">ระบบหารหัสจากอีเมลที่เข้ามาไม่เกิน 2 ชั่วโมง (สีฟ้า) · ถ้าเมล OTP ไม่อยู่ในรายการนี้ แปลว่าแอปปลายทางส่งไปอีเมลอื่น หรือยังส่งไม่ถึง</p>';
+            }
+            body.innerHTML = html;
         }
 
         // --- เพลงพื้นหลัง & ตัวโหลด ---

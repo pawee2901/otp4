@@ -494,81 +494,34 @@ define('MS_OAUTH_SCOPE', 'offline_access Mail.Read');
 // ฟังก์ชันดึง OTP จากบัญชี Hotmail/Outlook ที่เชื่อมต่อผ่าน Microsoft Graph API (OAuth)
 // เร็วและแม่นยำกว่าการ Forward เข้า Gmail/Maily กลางมาก เพราะอ่านจากกล่องเมลจริงของบัญชีนั้นโดยตรง
 function scan_ms_graph_account(&$config_data, $config_path, $creds, $app_name, $allowed_otp_digits = []) {
+    $GLOBALS['ms_graph_last_error'] = null;
     $refresh_token = $creds['refresh_token'] ?? '';
     $oauth = $config_data['microsoft_oauth'] ?? [];
     $client_id = $oauth['client_id'] ?? '';
     $client_secret = $oauth['client_secret'] ?? '';
     if (empty($refresh_token) || empty($client_id) || empty($client_secret)) {
+        $GLOBALS['ms_graph_last_error'] = ['kind' => 'secret', 'message' => 'ยังไม่ได้ตั้งค่า Microsoft App'];
         return [];
     }
 
-    // ขอ Access Token ใหม่ด้วย Refresh Token (Microsoft จะออก Refresh Token ใหม่ให้ทุกครั้งที่ใช้งาน ต้องบันทึกทับของเก่าเสมอ)
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, MS_TOKEN_URL);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
-        'client_id'     => $client_id,
-        'client_secret' => $client_secret,
-        'refresh_token' => $refresh_token,
-        'grant_type'    => 'refresh_token',
-        'scope'         => MS_OAUTH_SCOPE
-    ]));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 8);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-    $token_res = curl_exec($ch);
-    $token_http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($token_http_code !== 200 || !$token_res) {
-        error_log('[OTP] Microsoft token failed for ' . ($creds['email'] ?? '') . ' HTTP ' . $token_http_code . ': ' . substr((string)$token_res, 0, 300));
+    // ขอ Access Token ใหม่ด้วย Refresh Token (Microsoft ออก Refresh Token ใหม่ให้ทุกครั้ง ต้องบันทึกทับของเก่า)
+    $tok = ms_graph_refresh($client_id, $client_secret, $refresh_token);
+    if (!$tok['ok']) {
+        error_log('[OTP] Microsoft token failed for ' . ($creds['email'] ?? '') . ': ' . $tok['error']['message'] . ' | ' . $tok['raw']);
+        $GLOBALS['ms_graph_last_error'] = $tok['error'];
         return [];
     }
+    $access_token = $tok['access_token'];
+    ms_graph_store_refresh_token($config_data, $creds['email'] ?? '', $tok['refresh_token']);
 
-    $token_data = json_decode($token_res, true);
-    $access_token = $token_data['access_token'] ?? '';
-    if (empty($access_token)) {
+    // ดึงอีเมล 15 ฉบับล่าสุด (ทุกโฟลเดอร์ รวมจดหมายขยะ) ผ่าน Graph API
+    $list = ms_graph_list_messages($access_token, 15, true);
+    if (!$list['ok']) {
+        error_log('[OTP] Microsoft Graph mail list failed for ' . ($creds['email'] ?? '') . ': ' . $list['error']['message'] . ' | ' . $list['raw']);
+        $GLOBALS['ms_graph_last_error'] = $list['error'];
         return [];
     }
-
-    // บันทึก Refresh Token ใหม่กลับเข้าฐานข้อมูลทันที (ถ้า Microsoft ออกตัวใหม่มาให้)
-    if (!empty($token_data['refresh_token']) && $token_data['refresh_token'] !== $refresh_token) {
-        if (isset($config_data['imap_emails']) && is_array($config_data['imap_emails'])) {
-            foreach ($config_data['imap_emails'] as $idx => $item) {
-                if (strtolower($item['email'] ?? '') === strtolower($creds['email'] ?? '') && ($item['provider'] ?? '') === 'microsoft_graph') {
-                    $config_data['imap_emails'][$idx]['refresh_token'] = $token_data['refresh_token'];
-                    @save_config($config_data);
-                    break;
-                }
-            }
-        }
-    }
-
-    // ดึงอีเมล 5 ฉบับล่าสุดจากกล่องขาเข้าโดยตรงผ่าน Graph API
-    $ch2 = curl_init();
-    $query = http_build_query([
-        '$top'     => 5,
-        '$orderby' => 'receivedDateTime desc',
-        '$select'  => 'subject,from,receivedDateTime,body'
-    ]);
-    curl_setopt($ch2, CURLOPT_URL, 'https://graph.microsoft.com/v1.0/me/messages?' . $query);
-    curl_setopt($ch2, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $access_token]);
-    curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch2, CURLOPT_TIMEOUT, 8);
-    curl_setopt($ch2, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch2, CURLOPT_SSL_VERIFYHOST, false);
-    $mail_res = curl_exec($ch2);
-    $mail_http_code = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
-    curl_close($ch2);
-
-    if ($mail_http_code !== 200 || !$mail_res) {
-        error_log('[OTP] Microsoft Graph mail list failed for ' . ($creds['email'] ?? '') . ' HTTP ' . $mail_http_code . ': ' . substr((string)$mail_res, 0, 300));
-        return [];
-    }
-
-    $mail_data = json_decode($mail_res, true);
-    $messages = $mail_data['value'] ?? [];
+    $messages = $list['messages'];
 
     $found = [];
     foreach ($messages as $msg) {
@@ -791,6 +744,16 @@ if ($direct_ms_account) {
         exit;
     }
 
+    $ms_err = $GLOBALS['ms_graph_last_error'] ?? null;
+    if ($ms_err && in_array($ms_err['kind'], ['reconnect', 'secret', 'mailbox'], true)) {
+        // การเชื่อมต่อเสีย (ไม่ใช่แค่ยังไม่มีเมลเข้า) -> บอกลูกค้าตรง ๆ ให้แจ้งร้าน
+        echo json_encode([
+            'success' => false,
+            'ms_broken' => true,
+            'message' => "ระบบยังเชื่อมต่อกล่องเมล $email ไม่ได้ในขณะนี้ กรุณาแจ้งทางร้านให้ตรวจสอบการเชื่อมต่อ Hotmail/Outlook ค่ะ"
+        ]);
+        exit;
+    }
     echo json_encode([
         'success' => false,
         'message' => "ไม่พบอีเมลยืนยันตัวตนล่าสุดของ $app_name ส่งมายัง $email (กรุณากดส่งรหัส OTP ใหม่อีกครั้ง)"
