@@ -25,7 +25,10 @@
     <div class="main-card rounded-3xl border border-gray-100 p-4 md:p-6 space-y-3">
         <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2 text-sm font-extrabold text-gray-900"><i class="fa-solid fa-people-roof text-purple-600"></i><span>เมลร้าน (fam)</span></div>
-            <span id="renewFamSummary" class="text-[11px] text-gray-400"></span>
+            <div class="flex items-center gap-2">
+                <span id="renewFamSummary" class="text-[11px] text-gray-400"></span>
+                <button type="button" onclick="addRenewFam()" class="text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-3 py-1.5 rounded-lg"><i class="fa-solid fa-plus mr-1"></i>เพิ่มเมลร้าน</button>
+            </div>
         </div>
         <div id="renewFams" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
     </div>
@@ -320,7 +323,8 @@
             const line = r.line_linked
                 ? `<span class="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-0.5"><i class="fa-brands fa-line"></i>${rEsc(r.line_name || 'ผูกแล้ว')}</span>`
                 : `<button type="button" onclick='showRenewCode(${JSON.stringify(r.id)})' class="inline-flex items-center gap-1 text-[10px] font-bold text-white bg-rose-500 hover:bg-rose-600 rounded-lg px-2 py-0.5"><i class="fa-solid fa-link"></i>ส่งรหัส ${rEsc(r.link_code)}</button>`;
-            return `<div class="border ${st === 'expired' ? 'border-rose-200 bg-rose-50/30' : st === 'soon' ? 'border-amber-200 bg-amber-50/30' : 'border-gray-200 bg-white'} rounded-2xl p-3 space-y-2">
+            return `<div class="border ${st === 'expired' ? 'border-rose-200 bg-rose-50/30' : st === 'soon' ? 'border-amber-200 bg-amber-50/30' : 'border-gray-200 bg-white'} rounded-2xl p-3 flex gap-3">
+                <div class="flex-1 min-w-0 space-y-2">
                 <div class="flex items-start justify-between gap-2">
                     <div class="min-w-0">
                         <div class="text-xs font-extrabold text-gray-900 break-all">${rEsc(r.customer_email)}</div>
@@ -350,8 +354,72 @@
                     <button type="button" onclick='renewAction("renew_cancel",{id:${JSON.stringify(r.id)},on:${r.status === 'active' ? '"1"' : '"0"'}})' class="text-[10px] font-bold px-2 py-1 rounded-lg border border-gray-200 bg-white text-gray-500">${r.status === 'active' ? 'หยุดต่อ' : 'เปิดอีกครั้ง'}</button>
                     <button type="button" onclick='if(confirm("ลบรายการนี้ถาวร?"))renewAction("renew_delete",{id:${JSON.stringify(r.id)}})' class="text-[10px] font-bold px-2 py-1 rounded-lg text-gray-400 hover:text-rose-600"><i class="fa-regular fa-trash-can"></i></button>
                 </div>
+                </div>
+                <button type="button" onclick='openRenewPreview(${JSON.stringify(r.id)})' title="ตัวอย่างที่ระบบจะส่งให้ลูกค้า" class="flex-shrink-0 w-24 sm:w-32 self-start text-center group">
+                    ${renewCardHtml(r, true)}
+                    <span class="block text-[9px] font-bold text-purple-600 mt-1 group-hover:underline"><i class="fa-regular fa-eye mr-0.5"></i>ลูกค้าจะได้รับแบบนี้</span>
+                </button>
             </div>`;
         }).join('');
+    }
+
+    // ---------- ตัวอย่างสิ่งที่ลูกค้าจะได้รับ (ตำแหน่งเดียวกับ renew_card_layout() / renew_pay_flex() ใน renew_lib.php) ----------
+    const rThai = (ymd) => { const [y, m, d] = ymd.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }); };
+    const rAddDays = (ymd, n) => { const [y, m, d] = ymd.split('-').map(Number); const x = new Date(y, m - 1, d + n); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
+
+    // การ์ดเตือน: r = {customer_email, expires_on} · ตัวอักษรย่อ/ขยายตามขนาดกล่อง (container query)
+    function renewCardHtml(r, small = false, style = null, payBefore = null) {
+        const s = RENEW.settings;
+        style = style || s.card_style;
+        payBefore = payBefore === null ? s.pay_before_days : payBefore;
+        if (style !== 'image') {
+            return `<div class="rounded-xl border border-gray-200 bg-white p-2 text-left text-[9px] text-gray-600 leading-snug">
+                <b class="text-gray-900">⏰ ใกล้หมดอายุ</b><br>เมล: ${rEsc(r.customer_email)}<br>หมดอายุ ${rEsc(rThai(r.expires_on))}
+                <span class="block mt-1 rounded bg-pink-500 text-white text-center font-bold py-0.5">ต่อแพ็กเกจ</span></div>`;
+        }
+        const f = (t, l, w, text) => `<div style="position:absolute;top:${t};left:${l};width:${w};height:5.6%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:3.3cqw;color:#5a2a2a;white-space:nowrap;overflow:hidden">${rEsc(text)}</div>`;
+        return `<div class="relative rounded-xl overflow-hidden border border-gray-200 shadow-sm" style="container-type:inline-size">
+            <img src="${rEsc(s.card_url)}" class="w-full block" alt="การ์ดเตือน" loading="lazy">
+            ${f('27.3%', '23.2%', '56%', r.customer_email)}${f('37.3%', '39.6%', '36.8%', rThai(rAddDays(r.expires_on, -payBefore)))}${f('45.3%', '30.9%', '40%', rThai(r.expires_on))}
+        </div>`;
+    }
+
+    function renewPayHtml(style = null) {
+        style = style || RENEW.settings.pay_style;
+        const qr = '<div class="flex items-center justify-center bg-white" style="position:absolute;top:36.3%;left:62.3%;width:31.6%;height:31.6%;border-radius:6px"><i class="fa-solid fa-qrcode text-purple-500" style="font-size:20cqw"></i></div>';
+        return style === 'image'
+            ? `<div class="relative rounded-xl overflow-hidden border border-gray-200 shadow-sm" style="container-type:inline-size"><img src="${rEsc(RENEW.settings.pay_url)}" class="w-full block" alt="วิธีชำระเงิน" loading="lazy">${qr}</div>`
+            : '<div class="rounded-xl border border-gray-200 bg-white aspect-square flex items-center justify-center"><i class="fa-solid fa-qrcode text-6xl text-purple-500"></i></div>';
+    }
+
+    function openRenewPreview(id) {
+        const r = RENEW.renewals.find(x => x.id === id);
+        if (!r) return;
+        const s = RENEW.settings;
+        const pkg = RENEW.packages.find(p => p.id === r.package_id);
+        const amount = pkg ? pkg.price + (r.fee || 0) : null;
+        const remindOn = rThai(rAddDays(r.expires_on, -s.remind_days));
+        const choices = RENEW.packages.filter(p => p.active).length;
+        document.getElementById('renewInfoBody').innerHTML = `
+            <div class="flex items-center justify-between gap-2">
+                <p class="text-sm font-extrabold text-gray-900"><i class="fa-brands fa-line text-emerald-500 mr-1"></i>สิ่งที่ลูกค้าจะได้รับทาง LINE</p>
+                <button type="button" onclick="document.getElementById('renewInfoModal').classList.add('hidden')" class="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <p class="text-[11px] text-gray-500 break-all">${rEsc(r.customer_email)} · ${r.line_linked ? 'ผูก LINE แล้ว (' + rEsc(r.line_name || '-') + ')' : '<b class="text-rose-600">ยังไม่ผูก LINE — ลูกค้าจะยังไม่ได้รับการ์ด</b>'}</p>
+            <div class="space-y-1">
+                <p class="text-[11px] font-bold text-gray-700">① การ์ดเตือน — ส่งอัตโนมัติวันที่ ${rEsc(remindOn)} (ก่อนหมด ${s.remind_days} วัน ช่วง 09:00–21:00) หรือกด "ส่งเตือนตอนนี้"</p>
+                <div class="max-w-[300px]">${renewCardHtml(r, false)}</div>
+            </div>
+            <div class="space-y-1">
+                <p class="text-[11px] font-bold text-gray-700">② ลูกค้ากด "กดต่ออายุ" → ${choices > 1 ? 'เลือกแพ็กเกจ แล้วได้' : ''}หน้าชำระเงิน${amount !== null ? ' ยอด ' + rBaht(amount) : ''}</p>
+                <div class="max-w-[300px]">${renewPayHtml()}</div>
+                <p class="text-[10px] text-gray-400">ช่อง QR จะเป็น QR พร้อมเพย์ยอดพอดีของรายการนี้ ตามด้วยข้อความบอกยอดโอน${r.fee ? ' (รวมค่าต่อช้า ' + rBaht(r.fee) + ')' : ''}</p>
+            </div>
+            <div class="space-y-1 text-[11px] text-gray-600">
+                <p class="font-bold text-gray-700">③ ลูกค้าส่งสลิปในแชท</p>
+                <p>${s.slip_mode === 'api' ? 'ระบบตรวจสลิปผ่าน Slip2Go API แล้วต่ออายุ + แจ้งลูกค้าให้เอง' : 'Slip2Go ในแชทตรวจสลิป → แอดมินกด "ยืนยันรับเงิน" ในหน้านี้ → ระบบต่ออายุ + แจ้งลูกค้า'}</p>
+            </div>`;
+        document.getElementById('renewInfoModal').classList.remove('hidden');
     }
 
     function renderRenewFams() {
@@ -362,9 +430,24 @@
         document.getElementById('renewFams').innerHTML = fams.length ? fams.map(f => {
             const used = f.members.length;
             const cls = used > size ? 'bg-rose-50 text-rose-700 border-rose-200' : used >= size ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200';
-            return `<details class="border border-gray-200 rounded-xl px-3 py-2"><summary class="flex justify-between gap-2 cursor-pointer text-xs"><span class="font-bold break-all">${rEsc(f.email)}</span><span class="flex-shrink-0 text-[10px] font-bold border rounded-lg px-2 ${cls}">${used}/${size}</span></summary>
-                <div class="text-[11px] text-gray-500 pt-1.5 break-all">${f.members.map(rEsc).join('<br>')}</div></details>`;
-        }).join('') : '<p class="text-xs text-gray-400">ยังไม่มี (ใส่เมลร้านตอนเพิ่มลูกค้า)</p>';
+            return `<div class="border border-gray-200 rounded-xl px-3 py-2 flex items-start gap-2">
+                <details class="flex-1 min-w-0"><summary class="flex justify-between gap-2 cursor-pointer text-xs"><span class="font-bold break-all">${rEsc(f.email)}</span><span class="flex-shrink-0 text-[10px] font-bold border rounded-lg px-2 ${cls}">${used}/${size}</span></summary>
+                <div class="text-[11px] text-gray-500 pt-1.5 break-all">${used ? f.members.map(rEsc).join('<br>') : 'ยังไม่มีลูกค้า'}</div></details>
+                <button type="button" title="ลบเมลร้านนี้" onclick='deleteRenewFam(${JSON.stringify(f.email)}, ${used})' class="flex-shrink-0 w-6 h-6 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center"><i class="fa-regular fa-trash-can text-xs"></i></button>
+            </div>`;
+        }).join('') : '<p class="text-xs text-gray-400">ยังไม่มี — กด "เพิ่มเมลร้าน" หรือใส่ตอนเพิ่มลูกค้า</p>';
+    }
+
+    function addRenewFam() {
+        const email = (prompt('เมลร้าน (fam) ที่จะเพิ่ม เช่น family01@gmail.com') || '').trim();
+        if (email) renewAction('renew_fam_add', { email });
+    }
+
+    function deleteRenewFam(email, used) {
+        const msg = used
+            ? `ลบเมลร้าน ${email}?\n\nมีลูกค้าอยู่ ${used} คน — รายการลูกค้าไม่ถูกลบ แต่จะเปลี่ยนเป็น "ไม่ระบุ fam"`
+            : `ลบเมลร้าน ${email}?`;
+        if (confirm(msg)) renewAction('renew_fam_delete', { email });
     }
 
     function renderRenewPkgs() {
@@ -516,12 +599,7 @@
             return;
         }
         const before = Math.max(0, +document.getElementById('rsPayBefore').value || 0);
-        const [y, m, d] = RENEW.today.split('-').map(Number);
-        const th = (dt) => dt.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
-        const exp = new Date(y, m - 1, d + 3), due = new Date(y, m - 1, d + 3 - before);
-        const f = (t, l, w, text) => `<div style="position:absolute;top:${t};left:${l};width:${w};height:5.6%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:10px;color:#5a2a2a;white-space:nowrap;overflow:hidden">${rEsc(text)}</div>`;
-        box.innerHTML = `<img src="${rEsc(RENEW.settings.card_url)}" class="w-full block" alt="การ์ดเตือน">`
-            + f('27.3%', '23.2%', '56%', 'customer.email@gmail.com') + f('37.3%', '39.6%', '36.8%', th(due)) + f('45.3%', '30.9%', '40%', th(exp));
+        box.innerHTML = renewCardHtml({ customer_email: 'customer.email@gmail.com', expires_on: rAddDays(RENEW.today, 3) }, false, 'image', before);
     }
 
     function renderRenewPayPreview() {

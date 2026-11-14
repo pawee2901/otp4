@@ -32,6 +32,9 @@ try {
         }
         $list = [];
         $fams = [];
+        foreach ($db->query("SELECT email FROM renew_fams")->fetchAll(PDO::FETCH_COLUMN) as $fe) {
+            $fams[strtolower($fe)] = ['email' => $fe, 'members' => [], 'saved' => true];
+        }
         foreach ($rows as $r) {
             $fee = renew_fee($r);
             $list[] = [
@@ -48,7 +51,7 @@ try {
             ];
             if ($r['status'] === 'active' && empty($r['removed_at']) && $r['shop_email'] !== '') {
                 $k = strtolower($r['shop_email']);
-                $fams[$k] = $fams[$k] ?? ['email' => $r['shop_email'], 'members' => []];
+                $fams[$k] = $fams[$k] ?? ['email' => $r['shop_email'], 'members' => [], 'saved' => false];
                 $fams[$k]['members'][] = $r['customer_email'];
             }
         }
@@ -223,6 +226,26 @@ try {
         foreach ($admins as $uid) if (line_push($uid, $msgs)) $sent++;
         if (!$sent) renew_fail('ส่ง LINE ไม่สำเร็จ — ตรวจ Channel access token แล้วลองใหม่');
         renew_out(['success' => true, 'message' => "ส่งการ์ดตัวอย่างให้แอดมิน $sent คนแล้ว ดูใน LINE ได้เลย"]);
+    }
+
+    // ---------- เมลร้าน (fam) ----------
+    if ($action === 'renew_fam_add') {
+        $email = strtolower(renew_post('email'));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) renew_fail('เมลร้านไม่ถูกต้อง');
+        $q = $db->prepare("SELECT 1 FROM renew_fams WHERE email = ?");
+        $q->execute([$email]);
+        if (!$q->fetch()) $db->prepare("INSERT INTO renew_fams (email, created_at) VALUES (?, ?)")->execute([$email, time()]);
+        renew_out(['success' => true, 'message' => 'เพิ่มเมลร้านแล้ว']);
+    }
+    if ($action === 'renew_fam_delete') {
+        // ลบเมลร้านออกจากรายการ · ลูกค้าที่อยู่ใน fam นี้จะกลายเป็น "ไม่ระบุ fam" (รายการลูกค้าไม่ถูกลบ)
+        $email = strtolower(renew_post('email'));
+        if ($email === '') renew_fail('ไม่พบเมลร้าน');
+        $db->prepare("DELETE FROM renew_fams WHERE email = ?")->execute([$email]);
+        $st = $db->prepare("UPDATE renewals SET shop_email = '', updated_at = ? WHERE LOWER(shop_email) = ?");
+        $st->execute([time(), $email]);
+        $n = $st->rowCount();
+        renew_out(['success' => true, 'message' => 'ลบเมลร้านแล้ว' . ($n ? " · ลูกค้า $n รายการเปลี่ยนเป็นไม่ระบุ fam" : '')]);
     }
 
     // ---------- แพ็กเกจ ----------

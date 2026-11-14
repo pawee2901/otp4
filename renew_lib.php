@@ -97,6 +97,10 @@ function renew_schema($pdo) {
             is_admin     INT NOT NULL DEFAULT 0,
             last_seen    INT NOT NULL DEFAULT 0
         )",
+        "CREATE TABLE IF NOT EXISTS renew_fams (
+            email      VARCHAR(191) NOT NULL PRIMARY KEY,
+            created_at INT NOT NULL DEFAULT 0
+        )",
         "CREATE TABLE IF NOT EXISTS renew_files (
             k          VARCHAR(64) NOT NULL PRIMARY KEY,
             mime       VARCHAR(40) NOT NULL,
