@@ -79,6 +79,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    // --- ระบบต่อเมล (แท็บ "ต่อเมล") ---
+    if (strpos($action, 'renew_') === 0) {
+        require __DIR__ . '/renew_admin_actions.php';
+        exit;
+    }
+
     // --- Action: อัปเดตข้อมูลความปลอดภัย/ชื่อร้าน ---
     if ($action === 'update') {
         header('Content-Type: application/json');
@@ -987,6 +993,7 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
             <nav class="hidden md:flex flex-1 justify-center gap-1.5" aria-label="เมนูหลังบ้าน">
                 <button type="button" data-tab="imap" onclick="switchTab('imap')" class="tab-btn active border rounded-xl flex items-center justify-center gap-1.5 font-semibold px-3.5 py-2 text-sm"><i class="fa-solid fa-envelope"></i><span>บัญชีอีเมล</span></button>
                 <button type="button" data-tab="apps" onclick="switchTab('apps')" class="tab-btn inactive border rounded-xl flex items-center justify-center gap-1.5 font-semibold px-3.5 py-2 text-sm"><i class="fa-solid fa-mobile-screen-button"></i><span>แอปพลิเคชัน</span></button>
+                <button type="button" data-tab="renew" onclick="switchTab('renew')" class="tab-btn inactive border rounded-xl flex items-center justify-center gap-1.5 font-semibold px-3.5 py-2 text-sm"><i class="fa-solid fa-repeat"></i><span>ต่อเมล</span></button>
                 <button type="button" data-tab="api" onclick="switchTab('api')" class="tab-btn inactive border rounded-xl flex items-center justify-center gap-1.5 font-semibold px-3.5 py-2 text-sm"><i class="fa-solid fa-key"></i><span>ตั้งค่า API</span></button>
             </nav>
             <div class="flex items-center gap-2 flex-shrink-0">
@@ -1000,9 +1007,10 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
             <?php endif; ?>
         </div>
         <?php if ($logged_in): ?>
-        <nav class="md:hidden grid grid-cols-3 gap-1.5 px-3 pb-2.5" aria-label="เมนูหลังบ้าน">
+        <nav class="md:hidden grid grid-cols-4 gap-1.5 px-3 pb-2.5" aria-label="เมนูหลังบ้าน">
             <button type="button" data-tab="imap" onclick="switchTab('imap')" class="tab-btn active border rounded-xl flex flex-col items-center justify-center gap-1 font-semibold py-2 px-1 text-[11px]"><i class="fa-solid fa-envelope text-sm"></i><span class="font-bold">อีเมล</span></button>
             <button type="button" data-tab="apps" onclick="switchTab('apps')" class="tab-btn inactive border rounded-xl flex flex-col items-center justify-center gap-1 font-semibold py-2 px-1 text-[11px]"><i class="fa-solid fa-mobile-screen-button text-sm"></i><span class="font-bold">แอปพลิเคชัน</span></button>
+            <button type="button" data-tab="renew" onclick="switchTab('renew')" class="tab-btn inactive border rounded-xl flex flex-col items-center justify-center gap-1 font-semibold py-2 px-1 text-[11px]"><i class="fa-solid fa-repeat text-sm"></i><span class="font-bold">ต่อเมล</span></button>
             <button type="button" data-tab="api" onclick="switchTab('api')" class="tab-btn inactive border rounded-xl flex flex-col items-center justify-center gap-1 font-semibold py-2 px-1 text-[11px]"><i class="fa-solid fa-key text-sm"></i><span class="font-bold">ตั้งค่า API</span></button>
         </nav>
         <?php endif; ?>
@@ -1528,6 +1536,8 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
             </form>
         </div>
 
+        <?php include __DIR__ . '/renew_admin_ui.php'; ?>
+
         <?php endif; ?>
 
     </div>
@@ -1813,7 +1823,7 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
     <script>
 
         function switchTab(tabName) {
-            ['imap', 'apps', 'api'].forEach(t => {
+            ['imap', 'apps', 'renew', 'api'].forEach(t => {
                 const content = document.getElementById('tabContent' + t.charAt(0).toUpperCase() + t.slice(1));
                 if (content) content.classList.toggle('hidden', t !== tabName);
             });
@@ -1822,6 +1832,7 @@ $admin_app_options = admin_app_options($config['apps'] ?? []);
                 btn.classList.toggle('active', on);
                 btn.classList.toggle('inactive', !on);
             });
+            if (tabName === 'renew' && typeof loadRenew === 'function') loadRenew();
             window.scrollTo({ top: 0 });
         }
 

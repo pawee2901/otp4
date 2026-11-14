@@ -15,3 +15,5 @@ seed_data_real.sql
 
 # ไฟล์ข้อมูลของโหมดทดลองในเครื่อง
 local_test/config.local.json
+
+local_test/renew.sqlite
