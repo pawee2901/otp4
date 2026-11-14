@@ -120,6 +120,7 @@ function renew_setting_defaults() {
         'line_secret'      => '',
         'line_oa_id'       => '',      // เช่น @monalishop (ใช้ทำลิงก์แอดเพื่อน)
         'forward_webhook'  => '',      // Webhook เดิมของ OA (เช่น Slip2Go) — ส่งต่อเหตุการณ์ที่ระบบนี้ไม่ได้ใช้
+        'slip_mode'        => 'chat',  // chat = ให้ Slip2Go ในแชทของร้านตรวจ แล้วแอดมินกดยืนยัน · api = ระบบตรวจผ่าน Slip2Go API แล้วต่อให้เอง
         'slip2go_url'      => '',      // Base URL จากหน้า Slip2Go (API Connect)
         'slip2go_secret'   => '',
         'promptpay_id'     => '',      // เบอร์ 10 หลัก / เลข 13 หลัก / e-Wallet 15 หลัก
@@ -465,7 +466,8 @@ function renew_payment_messages($pay, $r) {
          . ($pay['fee']['fee'] > 0 ? "ค่า{$pay['fee']['why']}: " . renew_baht($pay['fee']['fee']) . "\n" : '')
          . "ยอดโอน: " . renew_baht($pay['amount']) . "\n"
          . ($st['pay_name'] !== '' ? "ชื่อบัญชี: {$st['pay_name']}\n" : '')
-         . "\nสแกน QR ด้านบนจ่ายยอดนี้พอดี แล้ว \"ส่งรูปสลิป\" ในแชทนี้ได้เลยค่ะ ระบบจะต่ออายุให้อัตโนมัติ\n"
+         . "\nสแกน QR ด้านบนจ่ายยอดนี้พอดี แล้ว \"ส่งรูปสลิป\" ในแชทนี้ได้เลยค่ะ "
+         . ($st['slip_mode'] === 'api' ? "ระบบจะต่ออายุให้อัตโนมัติ\n" : "ตรวจสลิปแล้วแอดมินจะยืนยันการต่ออายุให้ค่ะ\n")
          . "(QR ใช้ได้ " . (RENEW_QR_TTL / 60) . " นาที)";
     return [
         ['type' => 'image', 'originalContentUrl' => $qr_url, 'previewImageUrl' => $qr_url],
@@ -478,6 +480,41 @@ function renew_pending_payment($line_user_id) {
     $st = renew_db()->prepare("SELECT * FROM renew_payments WHERE line_user_id = ? AND status = 'pending' AND expires_at > ? ORDER BY created_at DESC LIMIT 1");
     $st->execute([$line_user_id, time() - RENEW_SLIP_GRACE]);
     return $st->fetch() ?: null;
+}
+
+// โหมด chat: ลูกค้าส่งสลิปค่าต่อเมล → ให้ Slip2Go ในแชทของร้านตรวจ (ไม่ตรวจซ้ำ) แล้วรอแอดมินกดยืนยัน
+function renew_mark_slip_received($pay) {
+    $st = renew_db()->prepare("UPDATE renew_payments SET status = 'slip', last_error = NULL WHERE id = ? AND status = 'pending'");
+    $st->execute([$pay['id']]);
+    if ($st->rowCount() !== 1) return;
+    $r = renew_get($pay['renewal_id']);
+    $pkg = renew_package($pay['package_id']);
+    renew_notify_admin('📩 ลูกค้าส่งสลิปค่าต่อเมล — ดูผลตรวจในแชทแล้วกดยืนยัน', [
+        'เมลลูกค้า: ' . ($r['customer_email'] ?? '-'), 'fam: ' . (($r['shop_email'] ?? '') !== '' ? $r['shop_email'] : '-'),
+        'แพ็กเกจ: ' . ($pkg['name'] ?? '-') . ' · ยอด ' . renew_baht($pay['amount']),
+        'ถ้าสลิปผ่าน → หลังบ้าน → ต่อเมล → กด "ยืนยันรับเงิน" ระบบจะต่อวันและแจ้งลูกค้าให้เอง',
+    ]);
+}
+
+// แอดมินยืนยันว่าสลิปผ่าน (โหมด chat) → ปิดรายการ + ต่อวัน + แจ้งลูกค้า
+function renew_confirm_payment($payment_id) {
+    $db = renew_db();
+    $q = $db->prepare("SELECT * FROM renew_payments WHERE id = ?");
+    $q->execute([$payment_id]);
+    $pay = $q->fetch();
+    if (!$pay || !in_array($pay['status'], ['slip', 'pending'], true)) return ['ok' => false, 'error' => 'รายการนี้ยืนยันไปแล้ว หรือถูกยกเลิกแล้ว'];
+    $st = $db->prepare("UPDATE renew_payments SET status = 'paid', paid_at = ? WHERE id = ? AND status IN ('slip', 'pending')");
+    $st->execute([time(), $pay['id']]);
+    if ($st->rowCount() !== 1) return ['ok' => false, 'error' => 'รายการนี้ยืนยันไปแล้ว'];
+    $pkg = renew_package($pay['package_id']);
+    $new_exp = renew_extend($pay['renewal_id'], $pay['package_id'], (int)($pkg['days'] ?? 30));
+    $r = renew_get($pay['renewal_id']);
+    renew_log('🔁 ยืนยันรับเงินค่าต่อเมลแล้ว', ["เมลลูกค้า: {$r['customer_email']}", 'แพ็กเกจ: ' . ($pkg['name'] ?? '-') . ' · ยอด ' . renew_baht($pay['amount']), 'ใช้ได้ถึง ' . renew_date_th($new_exp)]);
+    if ($r['line_user_id']) {
+        line_push($r['line_user_id'], [line_text("✅ ต่ออายุเรียบร้อยค่ะ\nเมล: {$r['customer_email']}\nใช้ได้ถึง " . renew_date_th($new_exp)
+            . ((int)$pay['readd'] ? "\n\nแอดมินจะเพิ่มเมลกลับเข้า fam ให้เร็ว ๆ นี้นะคะ" : '') . "\n\nขอบคุณที่ใช้บริการนะคะ 💖")]);
+    }
+    return ['ok' => true, 'until' => $new_exp, 'readd' => (bool)(int)$pay['readd']];
 }
 
 // ---------------------------------------------------------------- Slip2Go

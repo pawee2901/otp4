@@ -26,7 +26,8 @@ try {
         foreach ($packages as $p) $pk[$p['id']] = $p;
         $rows = $db->query("SELECT * FROM renewals ORDER BY status = 'active' DESC, expires_on ASC")->fetchAll();
         $pending = [];
-        foreach ($db->query("SELECT renewal_id, amount, created_at FROM renew_payments WHERE status = 'pending' AND expires_at > " . (time() - RENEW_SLIP_GRACE))->fetchAll() as $p) {
+        foreach ($db->query("SELECT id, renewal_id, amount, status, created_at FROM renew_payments WHERE status = 'slip' OR (status = 'pending' AND expires_at > " . (time() - RENEW_SLIP_GRACE) . ") ORDER BY created_at")->fetchAll() as $p) {
+            if (isset($pending[$p['renewal_id']]) && $pending[$p['renewal_id']]['status'] === 'slip' && $p['status'] !== 'slip') continue;
             $pending[$p['renewal_id']] = $p;
         }
         $list = [];
@@ -42,6 +43,8 @@ try {
                 'note' => $r['note'], 'status' => $r['status'], 'removed' => !empty($r['removed_at']),
                 'reminded' => $r['reminded_for'] === $r['expires_on'], 'renewed' => (int)$r['renewed_count'],
                 'pending' => isset($pending[$r['id']]) ? (float)$pending[$r['id']]['amount'] : null,
+                'pay_id' => $pending[$r['id']]['id'] ?? null,
+                'slip_sent' => ($pending[$r['id']]['status'] ?? '') === 'slip',
             ];
             if ($r['status'] === 'active' && empty($r['removed_at']) && $r['shop_email'] !== '') {
                 $k = strtolower($r['shop_email']);
@@ -65,7 +68,7 @@ try {
             'settings' => [
                 'line_token_set' => $st['line_token'] !== '', 'line_secret_set' => $st['line_secret'] !== '',
                 'slip2go_secret_set' => $st['slip2go_secret'] !== '',
-                'line_oa_id' => $st['line_oa_id'], 'forward_webhook' => $st['forward_webhook'], 'slip2go_url' => $st['slip2go_url'],
+                'slip_mode' => $st['slip_mode'], 'line_oa_id' => $st['line_oa_id'], 'forward_webhook' => $st['forward_webhook'], 'slip2go_url' => $st['slip2go_url'],
                 'promptpay_id' => $st['promptpay_id'], 'pay_name' => $st['pay_name'],
                 'receiver_type' => $st['receiver_type'], 'receiver_account' => $st['receiver_account'],
                 'remind_days' => (int)$st['remind_days'], 'grace_days' => (int)$st['grace_days'],
@@ -126,7 +129,7 @@ try {
             if (!$pkg) renew_fail('กรุณาเลือกแพ็กเกจ');
             $was_removed = !empty($r['removed_at']);
             $new = renew_extend($r['id'], $pkg['id'], (int)$pkg['days']);
-            $db->prepare("UPDATE renew_payments SET status = 'cancelled' WHERE renewal_id = ? AND status = 'pending'")->execute([$r['id']]);
+            $db->prepare("UPDATE renew_payments SET status = 'cancelled' WHERE renewal_id = ? AND status IN ('pending', 'slip')")->execute([$r['id']]);
             renew_log('🔁 แอดมินต่ออายุให้เอง', ["เมลลูกค้า: {$r['customer_email']}", "แพ็กเกจ: {$pkg['name']}", 'ใช้ได้ถึง ' . renew_date_th($new)]);
             if (renew_post('notify') === '1' && $r['line_user_id']) {
                 line_push($r['line_user_id'], [line_text("✅ ต่ออายุเรียบร้อยค่ะ\nเมล: {$r['customer_email']}\nใช้ได้ถึง " . renew_date_th($new) . "\n\nขอบคุณที่ใช้บริการนะคะ 💖")]);
@@ -156,6 +159,25 @@ try {
             $db->prepare("UPDATE renewals SET reminded_for = ? WHERE id = ?")->execute([$r['expires_on'], $r['id']]);
             renew_out(['success' => true, 'message' => 'ส่งการ์ดเตือนทาง LINE แล้ว']);
         }
+    }
+
+    // ---------- ยืนยัน / ปฏิเสธ สลิปที่ลูกค้าส่ง (โหมดให้ Slip2Go ในแชทตรวจ) ----------
+    if ($action === 'renew_confirm_pay') {
+        $res = renew_confirm_payment(renew_post('pay_id'));
+        if (!$res['ok']) renew_fail($res['error']);
+        renew_out(['success' => true, 'message' => 'ต่ออายุถึง ' . renew_date_th($res['until']) . ' และแจ้งลูกค้าแล้ว' . ($res['readd'] ? ' — อย่าลืมเชิญเมลกลับเข้า fam' : '')]);
+    }
+    if ($action === 'renew_reject_pay') {
+        $q = $db->prepare("SELECT * FROM renew_payments WHERE id = ? AND status IN ('slip', 'pending')");
+        $q->execute([renew_post('pay_id')]);
+        $pay = $q->fetch();
+        if (!$pay) renew_fail('ไม่พบรายการ');
+        $db->prepare("UPDATE renew_payments SET status = 'rejected' WHERE id = ?")->execute([$pay['id']]);
+        if (renew_post('notify') === '1') {
+            $r = renew_get($pay['renewal_id']);
+            if ($r && $r['line_user_id']) line_push($r['line_user_id'], [line_text('❌ สลิปค่าต่ออายุยังไม่ผ่านการตรวจค่ะ กรุณาทักแอดมินพร้อมสลิป หรือพิมพ์ "ต่อเมล" เพื่อทำรายการใหม่')]);
+        }
+        renew_out(['success' => true, 'message' => 'ปฏิเสธสลิปแล้ว']);
     }
 
     // ---------- แพ็กเกจ ----------
@@ -188,7 +210,8 @@ try {
 
     // ---------- ตั้งค่า ----------
     if ($action === 'renew_settings_save') {
-        $plain = ['line_oa_id', 'forward_webhook', 'slip2go_url', 'promptpay_id', 'pay_name', 'receiver_type', 'receiver_account'];
+        if (isset($_POST['slip_mode'])) $_POST['slip_mode'] = renew_post('slip_mode') === 'api' ? 'api' : 'chat';
+        $plain = ['slip_mode', 'line_oa_id', 'forward_webhook', 'slip2go_url', 'promptpay_id', 'pay_name', 'receiver_type', 'receiver_account'];
         $secret = ['line_token', 'line_secret', 'slip2go_secret']; // เว้นว่าง = ไม่เปลี่ยน
         $nums = ['remind_days' => [0, 30], 'grace_days' => [0, 60], 'late_fee' => [0, 100000], 'removed_fee' => [0, 100000], 'fam_size' => [1, 100]];
         if (isset($_POST['promptpay_id'])) {
