@@ -117,6 +117,13 @@ function renew_schema($pdo) {
     foreach ($tables as $sql) {
         $pdo->exec($sql . $tail);
     }
+    // คอลัมน์ที่เพิ่มทีหลัง (ตารางเดิมบนเว็บจริง)
+    $cols = renew_is_mysql($pdo)
+        ? $pdo->query("SHOW COLUMNS FROM renewals")->fetchAll(PDO::FETCH_COLUMN)
+        : array_column($pdo->query("PRAGMA table_info(renewals)")->fetchAll(), 'name');
+    if (!in_array('remind_at', $cols, true)) {
+        $pdo->exec("ALTER TABLE renewals ADD COLUMN remind_at VARCHAR(16) NULL"); // วัน-เวลาแจ้งเตือนที่แอดมินกำหนดเอง 'YYYY-MM-DD HH:MM' (เวลาไทย)
+    }
 }
 
 function renew_id($prefix = '') {
@@ -358,7 +365,7 @@ function renew_extend($renewal_id, $package_id, $days) {
     $base = max($r['expires_on'], renew_today());
     $new_exp = renew_add_days($base, (int)$days);
     $db->prepare("UPDATE renewals SET expires_on = ?, package_id = ?, renewed_count = renewed_count + 1,
-                  reminded_for = NULL, lapsed_for = NULL, removed_at = NULL, status = 'active', updated_at = ? WHERE id = ?")
+                  reminded_for = NULL, lapsed_for = NULL, removed_at = NULL, remind_at = NULL, status = 'active', updated_at = ? WHERE id = ?")
        ->execute([$new_exp, $package_id ?: $r['package_id'], time(), $renewal_id]);
     return $new_exp;
 }
@@ -896,10 +903,18 @@ function renew_sweep() {
 
     // 1) ใกล้หมด → เตือนครั้งเดียวต่อรอบ · ส่งเฉพาะช่วงเวลาที่แอดมินตั้ง (เช่น 09:00–09:29)
     //    เลยช่วงไปแล้ว (เช่น เพิ่มลูกค้าตอนบ่าย / แก้วันหมดอายุ) → รอเวลาเดียวกันของวันถัดไป
+    $due = [];
     if ($in_window) {
-        $st = $db->prepare("SELECT * FROM renewals WHERE status = 'active' AND expires_on <= ? AND expires_on >= ? LIMIT 40");
+        $st = $db->prepare("SELECT * FROM renewals WHERE status = 'active' AND (remind_at IS NULL OR remind_at = '') AND expires_on <= ? AND expires_on >= ? LIMIT 40");
         $st->execute([renew_today($remind_days), renew_today(-1)]);
-        foreach ($st->fetchAll() as $r) {
+        $due = $st->fetchAll();
+    }
+    // วัน-เวลาที่แอดมินกำหนดเองรายคน (ข้ามวัน/ข้ามเดือนได้) → ส่งเมื่อถึงเวลานั้น ไม่ขึ้นกับช่วงเวลาอัตโนมัติ
+    $st = $db->prepare("SELECT * FROM renewals WHERE status = 'active' AND remind_at IS NOT NULL AND remind_at <> '' AND remind_at <= ? LIMIT 40");
+    $st->execute([(new DateTime('now', new DateTimeZone('Asia/Bangkok')))->format('Y-m-d H:i')]);
+    $due = array_merge($due, $st->fetchAll());
+    {
+        foreach ($due as $r) {
             if ($r['reminded_for'] === $r['expires_on'] || !empty($r['removed_at'])) continue;
             $claim = $db->prepare("UPDATE renewals SET reminded_for = ? WHERE id = ? AND (reminded_for IS NULL OR reminded_for <> ?)");
             $claim->execute([$r['expires_on'], $r['id'], $r['expires_on']]);

@@ -44,7 +44,8 @@ try {
                 'expires_on' => $r['expires_on'], 'expires_th' => renew_date_th($r['expires_on']), 'left' => renew_days_left($r['expires_on']),
                 'deadline_th' => renew_date_th(renew_deadline($r)), 'fee' => $fee['fee'],
                 'note' => $r['note'], 'status' => $r['status'], 'removed' => !empty($r['removed_at']),
-                'reminded' => $r['reminded_for'] === $r['expires_on'], 'renewed' => (int)$r['renewed_count'],
+                'reminded' => $r['reminded_for'] === $r['expires_on'], 'remind_at' => (string)($r['remind_at'] ?? ''),
+                'remind_at_th' => !empty($r['remind_at']) ? renew_date_th(substr($r['remind_at'], 0, 10)) . ' ' . substr($r['remind_at'], 11, 5) . ' น.' : '', 'renewed' => (int)$r['renewed_count'],
                 'pending' => isset($pending[$r['id']]) ? (float)$pending[$r['id']]['amount'] : null,
                 'pay_id' => $pending[$r['id']]['id'] ?? null,
                 'slip_sent' => ($pending[$r['id']]['status'] ?? '') === 'slip',
@@ -105,15 +106,18 @@ try {
         if (!renew_package($pkg)) renew_fail('กรุณาเลือกแพ็กเกจ (เพิ่มแพ็กเกจในส่วน "แพ็กเกจต่อเมล" ก่อน)');
         if (!renew_valid_date($exp)) renew_fail('กรุณาเลือกวันหมดอายุ');
         $note = mb_substr(renew_post('note'), 0, 500);
+        // วัน-เวลาแจ้งเตือนกำหนดเอง (ไม่บังคับ) จาก <input type="datetime-local"> เช่น 2027-01-05T10:00
+        $remind_at = str_replace('T', ' ', renew_post('remind_at'));
+        if ($remind_at !== '' && !preg_match('/^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d$/', $remind_at)) renew_fail('วัน-เวลาแจ้งเตือนไม่ถูกต้อง');
         if ($id !== '') {
             $r = renew_get($id);
             if (!$r) renew_fail('ไม่พบรายการ', 404);
-            // เปลี่ยนวันหมดอายุ → เริ่มนับเตือนรอบใหม่
-            // (MySQL ใช้ค่าที่เพิ่งตั้งในคำสั่งเดียวกัน → ต้องเช็ค expires_on เดิมก่อนเปลี่ยน)
-            $db->prepare("UPDATE renewals SET reminded_for = CASE WHEN expires_on = ? THEN reminded_for ELSE NULL END,
-                          lapsed_for = CASE WHEN expires_on = ? THEN lapsed_for ELSE NULL END,
-                          customer_email = ?, shop_email = ?, package_id = ?, expires_on = ?, note = ?, updated_at = ? WHERE id = ?")
-               ->execute([$exp, $exp, $email, $fam, $pkg, $exp, $note, time(), $id]);
+            // เปลี่ยนวันหมดอายุ / เวลาแจ้งเตือน → เริ่มนับเตือนใหม่
+            $reset_remind = $r['expires_on'] !== $exp || (string)($r['remind_at'] ?? '') !== $remind_at;
+            $db->prepare("UPDATE renewals SET customer_email = ?, shop_email = ?, package_id = ?, expires_on = ?, note = ?, remind_at = ?, updated_at = ?,
+                          reminded_for = ?, lapsed_for = ? WHERE id = ?")
+               ->execute([$email, $fam, $pkg, $exp, $note, $remind_at !== '' ? $remind_at : null, time(),
+                          $reset_remind ? null : $r['reminded_for'], $r['expires_on'] !== $exp ? null : $r['lapsed_for'], $id]);
             if ($r['expires_on'] !== $exp) {
                 // เปลี่ยนวันหมดอายุ = เริ่มรอบใหม่ → ล้างรายการรอจ่าย/สลิปค้างของรอบเก่า
                 // และไม่ให้การจ่ายรอบเก่าทำให้ระบบตอบลูกค้าว่า "ต่ออายุเรียบร้อยแล้ว"
@@ -124,9 +128,9 @@ try {
             renew_out(['success' => true, 'message' => 'บันทึกแล้ว']);
         }
         $code = renew_new_link_code();
-        $db->prepare("INSERT INTO renewals (id, customer_email, shop_email, package_id, line_user_id, line_name, link_code, expires_on, note, status, renewed_count, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, NULL, '', ?, ?, ?, 'active', 0, ?, ?)")
-           ->execute([renew_id('r'), $email, $fam, $pkg, $code, $exp, $note, time(), time()]);
+        $db->prepare("INSERT INTO renewals (id, customer_email, shop_email, package_id, line_user_id, line_name, link_code, expires_on, note, remind_at, status, renewed_count, created_at, updated_at)
+                      VALUES (?, ?, ?, ?, NULL, '', ?, ?, ?, ?, 'active', 0, ?, ?)")
+           ->execute([renew_id('r'), $email, $fam, $pkg, $code, $exp, $note, $remind_at !== '' ? $remind_at : null, time(), time()]);
         renew_out(['success' => true, 'message' => 'เพิ่มลูกค้าแล้ว', 'link_code' => $code]);
     }
 

@@ -206,6 +206,12 @@
         <label class="block space-y-1"><span class="text-[11px] font-bold text-gray-600">วันหมดอายุ</span>
             <input id="rfExp" type="date" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-purple-600">
             <span class="flex flex-wrap gap-1 pt-1" id="rfExpQuick"></span></label>
+        <label class="block space-y-1"><span class="text-[11px] font-bold text-gray-600">แจ้งเตือนวัน-เวลา (กำหนดเอง · ไม่บังคับ)</span>
+            <div class="flex gap-1.5">
+                <input id="rfRemindAt" type="datetime-local" class="flex-1 min-w-0 px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-purple-600">
+                <button type="button" onclick="document.getElementById('rfRemindAt').value=''" class="px-3 rounded-xl border border-gray-200 text-xs font-bold text-gray-500 hover:bg-gray-50">ล้าง</button>
+            </div>
+            <span id="rfRemindHint" class="block text-[10px] text-gray-400">เว้นว่าง = อัตโนมัติ (ก่อนหมดอายุตามที่ตั้งไว้) · กำหนดวันข้ามวัน/ข้ามเดือนได้ · ต่ออายุแล้วกลับเป็นอัตโนมัติ</span></label>
         <label class="block space-y-1"><span class="text-[11px] font-bold text-gray-600">โน้ต (ลูกค้าไม่เห็น)</span>
             <input id="rfNote" type="text" maxlength="500" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-purple-600"></label>
         <div class="flex gap-2 pt-1">
@@ -439,6 +445,7 @@
                     <span class="text-gray-600 font-bold"><i class="fa-regular fa-calendar mr-0.5"></i>หมด ${rEsc(r.expires_th)}</span>
                     ${line}
                     ${r.reminded ? '<span class="text-sky-600 font-bold"><i class="fa-solid fa-paper-plane"></i> เตือนแล้ว</span>' : ''}
+                    ${r.remind_at && !r.reminded && r.status === 'active' ? `<span class="text-purple-700 font-bold"><i class="fa-regular fa-bell"></i> เตือน ${rEsc(r.remind_at_th)}</span>` : ''}
                     ${r.pending !== null && !r.slip_sent ? `<span class="text-purple-700 font-bold"><i class="fa-solid fa-qrcode"></i> รอจ่าย ${rBaht(r.pending)}</span>` : ''}
                     ${r.renewed ? `<span class="text-gray-400">ต่อแล้ว ${r.renewed} ครั้ง</span>` : ''}
                     ${r.note ? `<span class="text-gray-400 break-all">· ${rEsc(r.note)}</span>` : ''}
@@ -501,7 +508,7 @@
         const s = RENEW.settings;
         const pkg = RENEW.packages.find(p => p.id === r.package_id);
         const amount = pkg ? pkg.price + (r.fee || 0) : null;
-        const remindOn = rThai(rAddDays(r.expires_on, -s.remind_days));
+        const remindOn = r.remind_at ? rEsc(r.remind_at_th) + ' (กำหนดเอง)' : rThai(rAddDays(r.expires_on, -s.remind_days)) + ' เวลา ' + rEsc(s.remind_time || '09:00') + ' น.';
         const choices = RENEW.packages.filter(p => p.active).length;
         document.getElementById('renewInfoBody').innerHTML = `
             <div class="flex items-center justify-between gap-2">
@@ -510,7 +517,7 @@
             </div>
             <p class="text-[11px] text-gray-500 break-all">${rEsc(r.customer_email)} · ${r.line_linked ? 'ผูก LINE แล้ว (' + rEsc(r.line_name || '-') + ')' : '<b class="text-rose-600">ยังไม่ผูก LINE — ลูกค้าจะยังไม่ได้รับการ์ด</b>'}</p>
             <div class="space-y-1">
-                <p class="text-[11px] font-bold text-gray-700">① การ์ดเตือน — ส่งอัตโนมัติวันที่ ${rEsc(remindOn)} (ก่อนหมด ${s.remind_days} วัน เวลา ${rEsc(s.remind_time || '09:00')} น.) หรือกด "ส่งเตือนตอนนี้"</p>
+                <p class="text-[11px] font-bold text-gray-700">① การ์ดเตือน — ${r.reminded ? 'ส่งแล้วรอบนี้' : 'ส่งอัตโนมัติ ' + remindOn} หรือกด "ส่งเตือนตอนนี้"</p>
                 <div class="max-w-[300px]">${renewCardHtml(r, false)}</div>
             </div>
             <div class="space-y-1">
@@ -574,6 +581,7 @@
         document.getElementById('rfId').value = r ? r.id : '';
         document.getElementById('rfEmail').value = r ? r.customer_email : '';
         document.getElementById('rfNote').value = r ? r.note : '';
+        document.getElementById('rfRemindAt').value = r && r.remind_at ? r.remind_at.replace(' ', 'T') : '';
         document.getElementById('rfPkg').innerHTML = RENEW.packages.filter(p => p.active || (r && p.id === r.package_id))
             .map(p => `<option value="${rEsc(p.id)}" data-days="${p.days}" ${r && p.id === r.package_id ? 'selected' : ''}>${rEsc(p.name)} · ${rBaht(p.price)} · ${p.days} วัน</option>`).join('');
         // เลือก fam: แนะนำเมลที่มีที่ว่างและใส่ไปมากสุด (เติมให้เต็มทีละเมล)
@@ -618,6 +626,7 @@
             package_id: document.getElementById('rfPkg').value,
             expires_on: document.getElementById('rfExp').value,
             note: document.getElementById('rfNote').value.trim(),
+            remind_at: document.getElementById('rfRemindAt').value,
         });
         if (!j) return;
         document.getElementById('renewFormModal').classList.add('hidden');
