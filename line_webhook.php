@@ -271,11 +271,8 @@ function renew_handle_event($ev) {
                 'ถ้าชื่อ LINE ไม่ตรงกับเจ้าของเมล → หลังบ้าน → ต่อเมล → ยกเลิกการผูก']);
             $r = renew_get($r['id']);
         }
-        $flex = renew_flex_message([$r], '🔁 รายการต่อเมลของคุณ');
-        line_reply($reply, array_values(array_filter([
-            line_text(renew_msg('msg_linked', renew_msg_vars($r))),
-            $flex,
-        ])));
+        // ผูกสำเร็จ → ตอบแค่ข้อความเชื่อมต่อสำเร็จ (ไม่ส่งการ์ดต่ออายุ · การ์ดจะส่งตอนถึงรอบเตือน)
+        line_reply($reply, [line_text(renew_msg('msg_linked', renew_msg_vars($r)))]);
         return true;
     }
 
