@@ -115,7 +115,7 @@
                 <div id="renewCardPreview" class="relative w-full max-w-[300px] rounded-2xl overflow-hidden border border-gray-200 flex-shrink-0"></div>
                 <div class="text-[11px] text-gray-500 space-y-2">
                     <p>ตัวอย่างการ์ดที่ลูกค้าจะเห็นใน LINE — ระบบเติม <b>อีเมล / วันครบกำหนดชำระ / วันหมดอายุ</b> ลงในช่องให้เอง</p>
-                    <p><b>กดต่ออายุ</b> → ถ้ามีแพ็กเกจเดียวจะได้ QR ทันที · หลายแพ็กเกจจะให้เลือกก่อน<br><b>ไม่ต้องการต่ออายุแล้ว</b> → ถามยืนยัน แล้วหยุดเตือน + แจ้งแอดมินให้ลบเมลหลังหมดอายุ</p>
+                    <p><b>กดต่ออายุ</b> → ส่งช่องทางโอนทันที ตามแพ็กเกจที่ตั้งให้ลูกค้าคนนั้น<br><b>ไม่ต้องการต่ออายุแล้ว</b> → ถามยืนยัน แล้วหยุดเตือน + แจ้งแอดมินให้ลบเมลหลังหมดอายุ</p>
                     <p>เปลี่ยนรูปได้ (JPG/PNG สี่เหลี่ยมจัตุรัส ไม่เกิน 1.5MB) — ช่องกรอกและปุ่มต้องอยู่ตำแหน่งเดิมเหมือนรูปตั้งต้น</p>
                     <div class="flex flex-wrap gap-1.5">
                         <label class="cursor-pointer text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"><i class="fa-solid fa-upload mr-1"></i>เปลี่ยนรูป
@@ -513,7 +513,7 @@
                 <div class="max-w-[300px]">${renewCardHtml(r, false)}</div>
             </div>
             <div class="space-y-1">
-                <p class="text-[11px] font-bold text-gray-700">② ลูกค้ากด "กดต่ออายุ" → ${choices > 1 ? 'เลือกแพ็กเกจ แล้วได้' : ''}หน้าชำระเงิน${amount !== null ? ' ยอด ' + rBaht(amount) : ''}</p>
+                <p class="text-[11px] font-bold text-gray-700">② ลูกค้ากด "กดต่ออายุ" → ได้หน้าชำระเงินทันที (แพ็กเกจ ${rEsc(r.package)})${amount !== null ? ' ยอด ' + rBaht(amount) : ''}</p>
                 <div class="max-w-[300px]">${renewPayHtml()}</div>
                 <p class="text-[10px] text-gray-400">${s.pay_mode === 'static' ? 'ส่งรูปนี้ตามเดิม' : 'ช่อง QR จะเป็น QR พร้อมเพย์ยอดพอดีของรายการนี้'} ตามด้วยข้อความบอกยอดโอน${amount !== null ? ' ' + rBaht(amount) : ''}${r.fee ? ' (รวมค่าต่อช้า ' + rBaht(r.fee) + ')' : ''}</p>
             </div>

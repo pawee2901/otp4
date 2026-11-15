@@ -115,7 +115,7 @@ function renew_handle_event($ev) {
         $act = (string)($d['a'] ?? '');
         if ($act === 'nop') return true;
 
-        // การ์ดรูป: กด "กดต่ออายุ" → แพ็กเกจเดียว = ส่ง QR เลย · หลายแพ็กเกจ = ให้เลือกก่อน
+        // การ์ดรูป: กด "กดต่ออายุ" → ส่งช่องทางโอนทันที ตามแพ็กเกจที่แอดมินตั้งให้ลูกค้าคนนี้ (ไม่ให้เลือกแพ็กเกจ)
         if ($act === 'pick') {
             $r = renew_get((string)($d['r'] ?? ''));
             if ($r && $r['line_user_id'] === $uid && $r['status'] !== 'active') {
@@ -130,15 +130,14 @@ function renew_handle_event($ev) {
                 line_reply($reply, $busy);
                 return true;
             }
+            // แพ็กเกจของลูกค้า (renew_choices เรียงแพ็กเดิมไว้ก่อนเสมอ · ถ้าแพ็กเดิมถูกปิด ใช้แพ็กแรกที่เปิดอยู่)
             $choices = renew_choices($r);
-            if (count($choices) === 1) {
-                $pay = renew_create_payment($r, $choices[0]['id'], $uid);
-                line_reply($reply, $pay['ok'] ? renew_payment_messages($pay, $r) : [line_text($pay['error'])]);
-            } elseif (!$choices) {
-                line_reply($reply, [line_text('ยังไม่มีแพ็กเกจให้เลือก กรุณาทักแอดมินค่ะ')]);
-            } else {
-                line_reply($reply, [renew_flex_message([$r], '🔁 เลือกแพ็กเกจต่ออายุ', 'basic')]);
+            if (!$choices) {
+                line_reply($reply, [line_text('ยังไม่มีแพ็กเกจ กรุณาทักแอดมินค่ะ')]);
+                return true;
             }
+            $pay = renew_create_payment($r, $choices[0]['id'], $uid);
+            line_reply($reply, $pay['ok'] ? renew_payment_messages($pay, $r) : [line_text($pay['error'])]);
             return true;
         }
 
