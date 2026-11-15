@@ -199,9 +199,14 @@ function renew_handle_event($ev) {
         if (!$pay) return false; // ไม่มีรายการรอจ่าย = รูปทั่วไป/สลิปซื้อของปกติ → ส่งต่อให้บริการเดิม
         if (renew_settings()['slip_mode'] !== 'api') {
             // โหมด chat: ให้ Slip2Go ในแชทของร้านตรวจ (ส่งต่อ ไม่ตรวจซ้ำ) แล้วรอแอดมินกดยืนยัน
-            renew_mark_slip_received($pay);
-            if (trim(renew_settings()['forward_webhook']) !== '') return false;
-            line_reply($reply, [line_text(renew_msg('msg_slip_received', renew_msg_vars(renew_get($pay['renewal_id']) ?: [], ['amount' => renew_baht($pay['amount'])])))]);
+            $first = renew_mark_slip_received($pay);
+            $wait = line_text(renew_msg('msg_slip_received', renew_msg_vars(renew_get($pay['renewal_id']) ?: [], ['amount' => renew_baht($pay['amount'])])));
+            if (trim(renew_settings()['forward_webhook']) !== '') {
+                // ปุ่มตอบกลับ (reply token) ต้องเก็บไว้ให้ Slip2Go ใช้ตอบผลตรวจ → แจ้ง "รอแอดมินอนุมัติ" แบบ push แทน (ครั้งเดียวต่อรายการ)
+                if ($first) line_push($uid, [$wait]);
+                return false;
+            }
+            line_reply($reply, [$wait]);
             return true;
         }
         $img = line_content((string)$msg['id']);

@@ -73,7 +73,7 @@ try {
                 'slip2go_secret_set' => $st['slip2go_secret'] !== '',
                 'card_style' => $st['card_style'], 'pay_before_days' => (int)$st['pay_before_days'],
                 'card_url' => renew_image_path('card'), 'card_custom' => (bool)renew_file('card'),
-                'pay_style' => $st['pay_style'], 'pay_mode' => renew_pay_mode(), 'pay_url' => renew_image_path('pay'), 'pay_custom' => (bool)renew_file('pay'),
+                'pay_style' => $st['pay_style'], 'pay_text' => $st['pay_text'] !== '0', 'pay_mode' => renew_pay_mode(), 'pay_url' => renew_image_path('pay'), 'pay_custom' => (bool)renew_file('pay'),
                 'slip_mode' => $st['slip_mode'], 'line_oa_id' => $st['line_oa_id'], 'forward_webhook' => $st['forward_webhook'], 'slip2go_url' => $st['slip2go_url'],
                 'promptpay_id' => $st['promptpay_id'], 'pay_name' => $st['pay_name'],
                 'receiver_type' => $st['receiver_type'], 'receiver_account' => $st['receiver_account'],
@@ -300,8 +300,9 @@ try {
     if ($action === 'renew_settings_save') {
         if (isset($_POST['slip_mode'])) $_POST['slip_mode'] = renew_post('slip_mode') === 'api' ? 'api' : 'chat';
         if (isset($_POST['card_style'])) $_POST['card_style'] = renew_post('card_style') === 'basic' ? 'basic' : 'image';
+        if (isset($_POST['pay_text'])) $_POST['pay_text'] = renew_post('pay_text') === '0' ? '0' : '1';
         if (isset($_POST['pay_style'])) $_POST['pay_style'] = in_array(renew_post('pay_style'), ['static', 'image', 'qr'], true) ? renew_post('pay_style') : 'static';
-        $plain = ['slip_mode', 'card_style', 'pay_style', 'line_oa_id', 'forward_webhook', 'slip2go_url', 'promptpay_id', 'pay_name', 'receiver_type', 'receiver_account'];
+        $plain = ['slip_mode', 'card_style', 'pay_style', 'pay_text', 'line_oa_id', 'forward_webhook', 'slip2go_url', 'promptpay_id', 'pay_name', 'receiver_type', 'receiver_account'];
         $secret = ['line_token', 'line_secret', 'slip2go_secret']; // เว้นว่าง = ไม่เปลี่ยน
         $nums = ['amount_extra' => [0, 1000], 'pay_before_days' => [0, 30], 'remind_days' => [0, 30], 'grace_days' => [0, 60], 'late_fee' => [0, 100000], 'removed_fee' => [0, 100000], 'fam_size' => [1, 100]];
         if (isset($_POST['promptpay_id'])) {

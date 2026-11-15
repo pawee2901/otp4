@@ -140,6 +140,7 @@ function renew_setting_defaults() {
         'amount_extra'     => '5',     // รับยอดในสลิปเกินได้ไม่เกินกี่บาท (เช่น โอนผ่าน Wallet +5)
         'card_style'       => 'image', // image = การ์ดรูปของร้าน (เติมเมล/วันที่ลงในรูป) · basic = การ์ดข้อความ + ปุ่มแพ็กเกจ
         'pay_before_days'  => '2',
+        'pay_text'         => '1',     // 1 = ส่งข้อความบอกยอดตามหลังรูปวิธีชำระเงิน · 0 = ส่งแค่รูป
         'pay_style'        => 'static', // static = ส่งรูปวิธีชำระเงินของร้านตามเดิม (QR/บัญชีในรูป) · image = รูปของร้าน + QR ยอดพอดีวางทับ · qr = รูป QR ยอดพอดีอย่างเดียว
         'remind_days'      => '3',
         'grace_days'       => '3',
@@ -196,9 +197,9 @@ function renew_msg_defs() {
         'msg_renewed' => ['label' => 'ต่ออายุสำเร็จ', 'when' => 'ตรวจสลิปผ่าน / แอดมินกดยืนยันรับเงิน / แอดมินกดต่อเอง (ติ๊กแจ้งลูกค้า)',
             'vars' => ['email', 'expiry', 'package', 'readd_line'],
             'default' => "✅ ต่ออายุเรียบร้อยค่ะ\nเมล: {email}\nใช้ได้ถึง {expiry}{readd_line}\n\nขอบคุณที่ใช้บริการนะคะ 💖"],
-        'msg_slip_received' => ['label' => 'ได้รับสลิป (รอแอดมินตรวจ)', 'when' => 'ลูกค้าส่งสลิป — แบบให้แอดมินยืนยัน และไม่ได้ส่งต่อให้ Slip2Go ในแชท',
+        'msg_slip_received' => ['label' => 'ได้รับสลิป — รอแอดมินอนุมัติ', 'when' => 'ลูกค้าส่งสลิปค่าต่อเมล (แบบแอดมินกดยืนยัน) — Slip2Go ในแชทยังตรวจและตอบตามปกติ',
             'vars' => ['email', 'amount'],
-            'default' => "ได้รับสลิปแล้วค่ะ แอดมินจะตรวจสอบและยืนยันการต่ออายุให้เร็วที่สุดนะคะ 🙏"],
+            'default' => "ได้รับสลิปแล้วค่ะ 🙏\nรอแอดมินอนุมัติการต่ออายุสักครู่นะคะ เมื่อต่อเรียบร้อยระบบจะแจ้งในแชทนี้ค่ะ"],
         'msg_slip_failed' => ['label' => 'สลิปไม่ผ่าน (ตรวจอัตโนมัติ)', 'when' => 'ระบบตรวจสลิปผ่าน Slip2Go API แล้วไม่ผ่าน',
             'vars' => ['reason', 'email', 'amount'],
             'default' => "❌ {reason}\n\nหากโอนแล้วจริง กรุณาทักแอดมินพร้อมสลิปค่ะ"],
@@ -659,7 +660,8 @@ function renew_payment_messages($pay, $r) {
         // ส่งรูปวิธีชำระเงินของร้านตามเดิม + บอกยอด (ลูกค้าโอนตามช่องทางในรูป)
         $img = renew_site_url() . '/' . renew_image_path('pay');
         $txt = renew_pay_text($pay, $r, 'โอนยอดนี้ตามช่องทางในรูปด้านบน');
-        return [['type' => 'image', 'originalContentUrl' => $img, 'previewImageUrl' => $img], line_text($txt)];
+        $img_msg = ['type' => 'image', 'originalContentUrl' => $img, 'previewImageUrl' => $img];
+        return $st['pay_text'] === '0' ? [$img_msg] : [$img_msg, line_text($txt)];
     }
     $qr_url = renew_site_url() . '/renew_qr.php?id=' . $pay['id'] . '&t=' . renew_qr_sig($pay['id']);
     $txt = renew_pay_text($pay, $r, 'สแกน QR ด้านบนจ่ายยอดนี้พอดี' . ($st['pay_name'] !== '' ? " (ชื่อบัญชี {$st['pay_name']})" : '')
@@ -682,7 +684,7 @@ function renew_pending_payment($line_user_id) {
 function renew_mark_slip_received($pay) {
     $st = renew_db()->prepare("UPDATE renew_payments SET status = 'slip', last_error = NULL WHERE id = ? AND status = 'pending'");
     $st->execute([$pay['id']]);
-    if ($st->rowCount() !== 1) return;
+    if ($st->rowCount() !== 1) return false;
     $r = renew_get($pay['renewal_id']);
     $pkg = renew_package($pay['package_id']);
     renew_notify_admin('📩 ลูกค้าส่งสลิปค่าต่อเมล — ดูผลตรวจในแชทแล้วกดยืนยัน', [
@@ -690,6 +692,7 @@ function renew_mark_slip_received($pay) {
         'แพ็กเกจ: ' . ($pkg['name'] ?? '-') . ' · ยอด ' . renew_baht($pay['amount']),
         'ถ้าสลิปผ่าน → หลังบ้าน → ต่อเมล → กด "ยืนยันรับเงิน" ระบบจะต่อวันและแจ้งลูกค้าให้เอง',
     ]);
+    return true;
 }
 
 // แอดมินยืนยันว่าสลิปผ่าน (โหมด chat) → ปิดรายการ + ต่อวัน + แจ้งลูกค้า

@@ -135,6 +135,8 @@
                     <option value="image">รูป How To Pay ของร้าน + QR ยอดพอดีวางทับช่อง QR (ต้องใส่พร้อมเพย์)</option>
                     <option value="qr">รูป QR ยอดพอดีอย่างเดียว (ต้องใส่พร้อมเพย์)</option>
                 </select></label>
+            <label class="flex items-center gap-2 text-xs text-gray-700"><input type="checkbox" id="rsPayText" class="accent-purple-600 w-4 h-4">
+                ส่งข้อความบอกยอดโอนตามหลังรูป <span class="text-[10px] text-gray-400">(ไม่ติ๊ก = ส่งแค่รูป · แก้ข้อความได้ที่ "ข้อความที่ส่งให้ลูกค้า")</span></label>
             <div class="flex flex-col sm:flex-row gap-3 items-start">
                 <div id="renewPayPreview" class="relative w-full max-w-[300px] rounded-2xl overflow-hidden border border-gray-200 flex-shrink-0"></div>
                 <div class="text-[11px] text-gray-500 space-y-2">
@@ -360,6 +362,7 @@
         document.getElementById('renewCardResetBtn').classList.toggle('hidden', !s.card_custom);
         renderRenewCardPreview();
         set('rsPayStyle', s.pay_style || 'static');
+        document.getElementById('rsPayText').checked = s.pay_text !== false;
         document.getElementById('renewPayResetBtn').classList.toggle('hidden', !s.pay_custom);
         renderRenewPayPreview();
         set('rsOaId', s.line_oa_id); set('rsSlipMode', s.slip_mode || 'chat');
@@ -726,7 +729,7 @@
     async function saveRenewSettings() {
         const v = (id) => document.getElementById(id).value.trim();
         const j = await renewAction('renew_settings_save', {
-            pay_style: v('rsPayStyle'), card_style: v('rsCardStyle'), pay_before_days: v('rsPayBefore'), slip_mode: v('rsSlipMode'), line_token: v('rsLineToken'), line_secret: v('rsLineSecret'), line_oa_id: v('rsOaId'), forward_webhook: v('rsForward'),
+            pay_style: v('rsPayStyle'), pay_text: document.getElementById('rsPayText').checked ? '1' : '0', card_style: v('rsCardStyle'), pay_before_days: v('rsPayBefore'), slip_mode: v('rsSlipMode'), line_token: v('rsLineToken'), line_secret: v('rsLineSecret'), line_oa_id: v('rsOaId'), forward_webhook: v('rsForward'),
             promptpay_id: v('rsPromptpay'), pay_name: v('rsPayName'), slip2go_url: v('rsSlipUrl'), slip2go_secret: v('rsSlipSecret'),
             receiver_type: v('rsRecvType'), receiver_account: v('rsRecvAcc'), amount_extra: v('rsAmountExtra'),
             remind_days: v('rsRemind'), grace_days: v('rsGrace'), late_fee: v('rsLate'), removed_fee: v('rsRemoved'), fam_size: v('rsFamSize'),
