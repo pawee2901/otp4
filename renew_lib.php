@@ -221,9 +221,6 @@ function renew_msg_defs() {
         'msg_no_renewal' => ['label' => 'พิมพ์ "ต่อเมล" แต่ยังไม่ผูกบัญชี', 'when' => 'ลูกค้าพิมพ์ ต่อเมล / เช็ควันหมด แต่ยังไม่มีรายการ',
             'vars' => [],
             'default' => "ยังไม่มีรายการต่อเมลที่ผูกกับบัญชีนี้ค่ะ กรุณาพิมพ์รหัสที่ได้รับจากแอดมิน (เช่น R12345)"],
-        'msg_pay_pending' => ['label' => 'กด "กดต่ออายุ" ซ้ำ — ยังไม่ส่งสลิป', 'when' => 'ส่งช่องทางชำระเงินไปแล้ว แต่ลูกค้ากดต่ออายุอีก (ไม่ส่งรูปซ้ำ · มีปุ่มขอรูปอีกครั้ง)',
-            'vars' => ['email', 'amount', 'package', 'expiry'],
-            'default' => "ส่งช่องทางชำระเงินให้ด้านบนแล้วนะคะ 💳\nยอดโอน {amount}\nโอนแล้วส่งรูปสลิปในแชทนี้ได้เลยค่ะ"],
         'msg_wait_approve' => ['label' => 'กด "กดต่ออายุ" ซ้ำ — ส่งสลิปแล้ว', 'when' => 'ลูกค้าส่งสลิปแล้ว รอแอดมินอนุมัติ แต่กดต่ออายุอีก',
             'vars' => ['email', 'amount', 'expiry'],
             'default' => "ได้รับสลิปของ {email} แล้วค่ะ 🙏\nรอแอดมินอนุมัติการต่ออายุอยู่นะคะ"],
@@ -682,7 +679,8 @@ function renew_payment_messages($pay, $r) {
     ];
 }
 
-// ลูกค้ากด "กดต่ออายุ" ซ้ำ → ไม่ส่งช่องทางชำระเงินซ้ำ ตอบตามสถานะแทน · null = ทำรายการใหม่ได้
+// ลูกค้ากด "กดต่ออายุ" ซ้ำ → ยังไม่ส่งสลิป = ส่งรูปช่องทางชำระเงินให้อีกครั้งเลย (ใช้รายการเดิม ไม่สร้างใหม่)
+// ส่งสลิปแล้ว / เพิ่งต่อเสร็จ = ตอบตามสถานะ (กันลูกค้าโอนซ้ำ) · null = ทำรายการใหม่ได้
 // $package_id = แพ็กเกจที่กด (เลือกแพ็กเกจอื่น = ทำรายการใหม่ได้)
 function renew_busy_reply($r, $package_id = null) {
     $db = renew_db();
@@ -693,11 +691,8 @@ function renew_busy_reply($r, $package_id = null) {
         return [line_text(renew_msg('msg_wait_approve', renew_msg_vars($r, ['amount' => renew_baht($p['amount'])])))];
     }
     if ($p && ($package_id === null || $package_id === $p['package_id'])) {
-        $pkg = renew_package($p['package_id']);
-        $m = line_text(renew_msg('msg_pay_pending', renew_msg_vars($r, ['amount' => renew_baht($p['amount']), 'package' => $pkg['name'] ?? ''])));
-        $m['quickReply'] = ['items' => [['type' => 'action', 'action' => [
-            'type' => 'postback', 'label' => 'ขอรูปชำระเงินอีกครั้ง', 'data' => 'a=repay&r=' . $r['id'], 'displayText' => 'ขอช่องทางชำระเงินอีกครั้ง']]]];
-        return [$m];
+        $again = renew_repay_messages($r);
+        if ($again) return $again;
     }
     $q = $db->prepare("SELECT 1 FROM renew_payments WHERE renewal_id = ? AND status = 'paid' AND paid_at > ? LIMIT 1");
     $q->execute([$r['id'], time() - 86400]);
