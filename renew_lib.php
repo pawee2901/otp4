@@ -143,6 +143,7 @@ function renew_setting_defaults() {
         'pay_text'         => '1',     // 1 = ส่งข้อความบอกยอดตามหลังรูปวิธีชำระเงิน · 0 = ส่งแค่รูป
         'pay_style'        => 'static', // static = ส่งรูปวิธีชำระเงินของร้านตามเดิม (QR/บัญชีในรูป) · image = รูปของร้าน + QR ยอดพอดีวางทับ · qr = รูป QR ยอดพอดีอย่างเดียว
         'remind_days'      => '3',
+        'remind_time'      => '09:00', // เวลาที่ส่งการ์ดเตือนอัตโนมัติ (เวลาไทย) — ส่งรอบแรกที่ cron ทำงานตั้งแต่เวลานี้ของวันนั้น
         'grace_days'       => '3',
         'late_fee'         => '10',
         'removed_fee'      => '20',
@@ -880,11 +881,13 @@ function renew_handle_slip($pay, $image_bytes) {
 function renew_sweep() {
     $db = renew_db();
     $out = ['reminded' => 0, 'unlinked' => 0, 'lapsed' => 0, 'expired_qr' => 0];
-    $hour = (int)(new DateTime('now', new DateTimeZone('Asia/Bangkok')))->format('G');
+    $now_hm = (new DateTime('now', new DateTimeZone('Asia/Bangkok')))->format('H:i');
+    $remind_at = preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', renew_settings()['remind_time']) ? renew_settings()['remind_time'] : '09:00';
     $remind_days = (int)renew_num('remind_days');
 
-    // 1) ใกล้หมด → เตือนครั้งเดียวต่อรอบ (ส่ง 09:00–20:59 ไม่ปลุกลูกค้ากลางคืน)
-    if ($hour >= 9 && $hour < 21) {
+    // 1) ใกล้หมด → เตือนครั้งเดียวต่อรอบ · ส่งตั้งแต่เวลาที่แอดมินตั้ง (เช่น 09:00) ถึงสิ้นวัน
+    //    cron เรียกทุก 15 นาที → ส่งจริงภายใน ~15 นาทีหลังเวลาที่ตั้ง
+    if ($now_hm >= $remind_at) {
         $st = $db->prepare("SELECT * FROM renewals WHERE status = 'active' AND expires_on <= ? AND expires_on >= ? LIMIT 40");
         $st->execute([renew_today($remind_days), renew_today(-1)]);
         foreach ($st->fetchAll() as $r) {

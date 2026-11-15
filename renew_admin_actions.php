@@ -78,7 +78,7 @@ try {
                 'promptpay_id' => $st['promptpay_id'], 'pay_name' => $st['pay_name'],
                 'receiver_type' => $st['receiver_type'], 'receiver_account' => $st['receiver_account'],
                 'amount_extra' => (float)$st['amount_extra'], 'slip2go_ready' => $st['slip2go_url'] !== '' && $st['slip2go_secret'] !== '',
-                'remind_days' => (int)$st['remind_days'], 'grace_days' => (int)$st['grace_days'],
+                'remind_days' => (int)$st['remind_days'], 'remind_time' => $st['remind_time'], 'grace_days' => (int)$st['grace_days'],
                 'late_fee' => (float)$st['late_fee'], 'removed_fee' => (float)$st['removed_fee'], 'fam_size' => max(1, (int)$st['fam_size']),
                 'admin_code' => $st['admin_code'],
                 'webhook_url' => $site . '/line_webhook.php',
@@ -331,6 +331,11 @@ try {
             if (!isset($_POST[$k])) continue;
             $v = (float)renew_post($k);
             renew_set($k, (string)max($lo, min($hi, $v)));
+        }
+        if (isset($_POST['remind_time'])) {
+            $t = renew_post('remind_time');
+            if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $t)) renew_fail('เวลาแจ้งเตือนไม่ถูกต้อง (เช่น 09:00)');
+            renew_set('remind_time', $t);
         }
         if (renew_post('new_cron_key') === '1') renew_set('cron_key', bin2hex(random_bytes(12)));
         renew_out(['success' => true, 'message' => 'บันทึกการตั้งค่าแล้ว']);

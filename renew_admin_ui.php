@@ -151,7 +151,8 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 border-t border-gray-100 pt-4">
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 border-t border-gray-100 pt-4">
+            <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">เวลาส่งแจ้งเตือนอัตโนมัติ (เวลาไทย)</span><input id="rsRemindTime" type="time" step="900" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"><span class="block text-[10px] text-gray-400">ส่งภายใน ~15 นาทีหลังเวลานี้</span></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">เตือนก่อนหมด (วัน)</span><input id="rsRemind" type="number" min="0" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">ต่อราคาปกติได้ถึง หมดอายุ + (วัน)</span><input id="rsGrace" type="number" min="0" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">ต่อช้า บวก (บาท)</span><input id="rsLate" type="number" min="0" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>
@@ -368,7 +369,7 @@
         set('rsOaId', s.line_oa_id); set('rsSlipMode', s.slip_mode || 'chat');
         document.getElementById('rsApiBox').classList.toggle('opacity-50', (s.slip_mode || 'chat') !== 'api'); set('rsForward', s.forward_webhook || ''); set('rsPromptpay', s.promptpay_id); set('rsPayName', s.pay_name);
         set('rsAmountExtra', s.amount_extra); set('rsSlipUrl', s.slip2go_url); set('rsRecvType', s.receiver_type); set('rsRecvAcc', s.receiver_account);
-        set('rsRemind', s.remind_days); set('rsGrace', s.grace_days); set('rsLate', s.late_fee); set('rsRemoved', s.removed_fee); set('rsFamSize', s.fam_size);
+        set('rsRemindTime', s.remind_time || '09:00'); set('rsRemind', s.remind_days); set('rsGrace', s.grace_days); set('rsLate', s.late_fee); set('rsRemoved', s.removed_fee); set('rsFamSize', s.fam_size);
         document.getElementById('renewWebhookUrl').innerText = s.webhook_url;
         document.getElementById('renewWebhookUrl2').innerText = s.webhook_url;
         document.getElementById('renewCronUrl').innerText = s.cron_url;
@@ -509,7 +510,7 @@
             </div>
             <p class="text-[11px] text-gray-500 break-all">${rEsc(r.customer_email)} · ${r.line_linked ? 'ผูก LINE แล้ว (' + rEsc(r.line_name || '-') + ')' : '<b class="text-rose-600">ยังไม่ผูก LINE — ลูกค้าจะยังไม่ได้รับการ์ด</b>'}</p>
             <div class="space-y-1">
-                <p class="text-[11px] font-bold text-gray-700">① การ์ดเตือน — ส่งอัตโนมัติวันที่ ${rEsc(remindOn)} (ก่อนหมด ${s.remind_days} วัน ช่วง 09:00–21:00) หรือกด "ส่งเตือนตอนนี้"</p>
+                <p class="text-[11px] font-bold text-gray-700">① การ์ดเตือน — ส่งอัตโนมัติวันที่ ${rEsc(remindOn)} (ก่อนหมด ${s.remind_days} วัน เวลา ${rEsc(s.remind_time || '09:00')} น.) หรือกด "ส่งเตือนตอนนี้"</p>
                 <div class="max-w-[300px]">${renewCardHtml(r, false)}</div>
             </div>
             <div class="space-y-1">
@@ -732,7 +733,7 @@
             pay_style: v('rsPayStyle'), pay_text: document.getElementById('rsPayText').checked ? '1' : '0', card_style: v('rsCardStyle'), pay_before_days: v('rsPayBefore'), slip_mode: v('rsSlipMode'), line_token: v('rsLineToken'), line_secret: v('rsLineSecret'), line_oa_id: v('rsOaId'), forward_webhook: v('rsForward'),
             promptpay_id: v('rsPromptpay'), pay_name: v('rsPayName'), slip2go_url: v('rsSlipUrl'), slip2go_secret: v('rsSlipSecret'),
             receiver_type: v('rsRecvType'), receiver_account: v('rsRecvAcc'), amount_extra: v('rsAmountExtra'),
-            remind_days: v('rsRemind'), grace_days: v('rsGrace'), late_fee: v('rsLate'), removed_fee: v('rsRemoved'), fam_size: v('rsFamSize'),
+            remind_time: v('rsRemindTime') || '09:00', remind_days: v('rsRemind'), grace_days: v('rsGrace'), late_fee: v('rsLate'), removed_fee: v('rsRemoved'), fam_size: v('rsFamSize'),
         });
         if (j) ['rsLineToken', 'rsLineSecret', 'rsSlipSecret'].forEach(id => document.getElementById(id).value = '');
     }
