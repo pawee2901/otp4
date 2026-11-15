@@ -221,6 +221,15 @@ function renew_msg_defs() {
         'msg_no_renewal' => ['label' => 'พิมพ์ "ต่อเมล" แต่ยังไม่ผูกบัญชี', 'when' => 'ลูกค้าพิมพ์ ต่อเมล / เช็ควันหมด แต่ยังไม่มีรายการ',
             'vars' => [],
             'default' => "ยังไม่มีรายการต่อเมลที่ผูกกับบัญชีนี้ค่ะ กรุณาพิมพ์รหัสที่ได้รับจากแอดมิน (เช่น R12345)"],
+        'msg_pay_pending' => ['label' => 'กด "กดต่ออายุ" ซ้ำ — ยังไม่ส่งสลิป', 'when' => 'ส่งช่องทางชำระเงินไปแล้ว แต่ลูกค้ากดต่ออายุอีก (ไม่ส่งรูปซ้ำ · มีปุ่มขอรูปอีกครั้ง)',
+            'vars' => ['email', 'amount', 'package', 'expiry'],
+            'default' => "ส่งช่องทางชำระเงินให้ด้านบนแล้วนะคะ 💳\nยอดโอน {amount}\nโอนแล้วส่งรูปสลิปในแชทนี้ได้เลยค่ะ"],
+        'msg_wait_approve' => ['label' => 'กด "กดต่ออายุ" ซ้ำ — ส่งสลิปแล้ว', 'when' => 'ลูกค้าส่งสลิปแล้ว รอแอดมินอนุมัติ แต่กดต่ออายุอีก',
+            'vars' => ['email', 'amount', 'expiry'],
+            'default' => "ได้รับสลิปของ {email} แล้วค่ะ 🙏\nรอแอดมินอนุมัติการต่ออายุอยู่นะคะ"],
+        'msg_already_renewed' => ['label' => 'กด "กดต่ออายุ" ซ้ำ — เพิ่งต่อเสร็จ', 'when' => 'ต่ออายุเสร็จไปแล้วภายใน 24 ชม. แต่ลูกค้ากดต่ออายุจากการ์ดเก่า',
+            'vars' => ['email', 'expiry'],
+            'default' => "รายการ {email} ต่ออายุเรียบร้อยแล้วค่ะ ✅\nใช้ได้ถึง {expiry}"],
     ];
 }
 
@@ -671,6 +680,43 @@ function renew_payment_messages($pay, $r) {
             : ['type' => 'image', 'originalContentUrl' => $qr_url, 'previewImageUrl' => $qr_url],
         line_text($txt),
     ];
+}
+
+// ลูกค้ากด "กดต่ออายุ" ซ้ำ → ไม่ส่งช่องทางชำระเงินซ้ำ ตอบตามสถานะแทน · null = ทำรายการใหม่ได้
+// $package_id = แพ็กเกจที่กด (เลือกแพ็กเกจอื่น = ทำรายการใหม่ได้)
+function renew_busy_reply($r, $package_id = null) {
+    $db = renew_db();
+    $q = $db->prepare("SELECT * FROM renew_payments WHERE renewal_id = ? AND (status = 'slip' OR (status = 'pending' AND expires_at > ?)) ORDER BY created_at DESC LIMIT 1");
+    $q->execute([$r['id'], time() - RENEW_SLIP_GRACE]);
+    $p = $q->fetch();
+    if ($p && $p['status'] === 'slip') {
+        return [line_text(renew_msg('msg_wait_approve', renew_msg_vars($r, ['amount' => renew_baht($p['amount'])])))];
+    }
+    if ($p && ($package_id === null || $package_id === $p['package_id'])) {
+        $pkg = renew_package($p['package_id']);
+        $m = line_text(renew_msg('msg_pay_pending', renew_msg_vars($r, ['amount' => renew_baht($p['amount']), 'package' => $pkg['name'] ?? ''])));
+        $m['quickReply'] = ['items' => [['type' => 'action', 'action' => [
+            'type' => 'postback', 'label' => 'ขอรูปชำระเงินอีกครั้ง', 'data' => 'a=repay&r=' . $r['id'], 'displayText' => 'ขอช่องทางชำระเงินอีกครั้ง']]]];
+        return [$m];
+    }
+    $q = $db->prepare("SELECT 1 FROM renew_payments WHERE renewal_id = ? AND status = 'paid' AND paid_at > ? LIMIT 1");
+    $q->execute([$r['id'], time() - 86400]);
+    if ($q->fetch()) {
+        return [line_text(renew_msg('msg_already_renewed', renew_msg_vars($r)))];
+    }
+    return null;
+}
+
+// ส่งช่องทางชำระเงินของรายการรอจ่ายเดิมอีกครั้ง (ลูกค้ากดขอเอง · ไม่สร้างรายการใหม่)
+function renew_repay_messages($r) {
+    $q = renew_db()->prepare("SELECT * FROM renew_payments WHERE renewal_id = ? AND status = 'pending' AND expires_at > ? ORDER BY created_at DESC LIMIT 1");
+    $q->execute([$r['id'], time() - RENEW_SLIP_GRACE]);
+    $p = $q->fetch();
+    if (!$p) return null;
+    $fee = (float)$p['fee'];
+    $why = $fee > 0 ? (renew_fee($r)['why'] ?: 'ค่าธรรมเนียม') : '';
+    return renew_payment_messages(['id' => $p['id'], 'amount' => (float)$p['amount'], 'package' => renew_package($p['package_id']) ?: ['name' => '', 'days' => 0],
+                                   'fee' => ['fee' => $fee, 'why' => $why]], $r);
 }
 
 // รายการรอจ่ายล่าสุดของลูกค้า (ยังส่งสลิปได้)

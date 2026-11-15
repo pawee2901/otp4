@@ -126,6 +126,10 @@ function renew_handle_event($ev) {
                 line_reply($reply, [line_text('ไม่พบรายการต่อเมลนี้ กรุณาทักแอดมินค่ะ')]);
                 return true;
             }
+            if ($busy = renew_busy_reply($r)) {   // กดซ้ำ → ไม่ส่งช่องทางชำระเงินซ้ำ
+                line_reply($reply, $busy);
+                return true;
+            }
             $choices = renew_choices($r);
             if (count($choices) === 1) {
                 $pay = renew_create_payment($r, $choices[0]['id'], $uid);
@@ -178,8 +182,24 @@ function renew_handle_event($ev) {
                 line_reply($reply, [line_text('แพ็กเกจนี้ใช้ต่อรายการนี้ไม่ได้ กรุณาพิมพ์ "ต่อเมล" แล้วเลือกใหม่ค่ะ')]);
                 return true;
             }
+            if ($busy = renew_busy_reply($r, (string)$d['p'])) {   // กดแพ็กเกจเดิมซ้ำ → ไม่ส่งซ้ำ (เลือกแพ็กเกจอื่น = ทำรายการใหม่)
+                line_reply($reply, $busy);
+                return true;
+            }
             $pay = renew_create_payment($r, (string)$d['p'], $uid);
             line_reply($reply, $pay['ok'] ? renew_payment_messages($pay, $r) : [line_text($pay['error'])]);
+            return true;
+        }
+
+        // ลูกค้ากดปุ่ม "ขอรูปชำระเงินอีกครั้ง"
+        if ($act === 'repay') {
+            $r = renew_get((string)($d['r'] ?? ''));
+            if (!$r || $r['line_user_id'] !== $uid || $r['status'] !== 'active') {
+                line_reply($reply, [line_text('ไม่พบรายการต่อเมลนี้ กรุณาทักแอดมินค่ะ')]);
+                return true;
+            }
+            $msgs = renew_repay_messages($r);
+            line_reply($reply, $msgs ?: (renew_busy_reply($r) ?: [line_text('รายการชำระเงินหมดเวลาแล้วค่ะ กรุณากด "กดต่ออายุ" ในการ์ดอีกครั้งนะคะ')]));
             return true;
         }
         return false;
