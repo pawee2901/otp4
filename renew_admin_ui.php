@@ -152,7 +152,7 @@
         </div>
 
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 border-t border-gray-100 pt-4">
-            <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">เวลาส่งแจ้งเตือนอัตโนมัติ (เวลาไทย)</span><input id="rsRemindTime" type="time" step="900" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"><span class="block text-[10px] text-gray-400">ส่งภายใน ~15 นาทีหลังเวลานี้</span></label>
+            <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">เวลาส่งแจ้งเตือนอัตโนมัติ (เวลาไทย)</span><input id="rsRemindTime" type="time" step="900" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"><span class="block text-[10px] text-gray-400">ส่งเฉพาะช่วงเวลานี้ (ภายใน 30 นาที) · เลยช่วงแล้วรอวันถัดไป · ปุ่ม "ส่งเตือนตอนนี้" ส่งทันทีได้เสมอ</span></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">เตือนก่อนหมด (วัน)</span><input id="rsRemind" type="number" min="0" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">ต่อราคาปกติได้ถึง หมดอายุ + (วัน)</span><input id="rsGrace" type="number" min="0" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">ต่อช้า บวก (บาท)</span><input id="rsLate" type="number" min="0" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>

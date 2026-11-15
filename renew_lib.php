@@ -878,16 +878,25 @@ function renew_handle_slip($pay, $image_bytes) {
 }
 
 // ---------------------------------------------------------------- งานเป็นรอบ (renew_cron.php)
+// อยู่ในช่วงเวลาส่งแจ้งเตือนไหม: [เวลาที่ตั้ง, +30 นาที) ตามเวลาไทย (cron เรียกทุก 15 นาที → ทุกช่วงมี cron อย่างน้อย 1 รอบ)
+function renew_in_remind_window($now = null) {
+    $t = renew_settings()['remind_time'];
+    if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $t, $m)) $m = [0, 9, 0];
+    $start = (int)$m[1] * 60 + (int)$m[2];
+    $d = $now ?: new DateTime('now', new DateTimeZone('Asia/Bangkok'));
+    $cur = (int)$d->format('G') * 60 + (int)$d->format('i');
+    return (($cur - $start + 1440) % 1440) < 30; // รองรับช่วงข้ามเที่ยงคืน เช่น 23:45–00:14
+}
+
 function renew_sweep() {
     $db = renew_db();
     $out = ['reminded' => 0, 'unlinked' => 0, 'lapsed' => 0, 'expired_qr' => 0];
-    $now_hm = (new DateTime('now', new DateTimeZone('Asia/Bangkok')))->format('H:i');
-    $remind_at = preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', renew_settings()['remind_time']) ? renew_settings()['remind_time'] : '09:00';
     $remind_days = (int)renew_num('remind_days');
+    $in_window = renew_in_remind_window();
 
-    // 1) ใกล้หมด → เตือนครั้งเดียวต่อรอบ · ส่งตั้งแต่เวลาที่แอดมินตั้ง (เช่น 09:00) ถึงสิ้นวัน
-    //    cron เรียกทุก 15 นาที → ส่งจริงภายใน ~15 นาทีหลังเวลาที่ตั้ง
-    if ($now_hm >= $remind_at) {
+    // 1) ใกล้หมด → เตือนครั้งเดียวต่อรอบ · ส่งเฉพาะช่วงเวลาที่แอดมินตั้ง (เช่น 09:00–09:29)
+    //    เลยช่วงไปแล้ว (เช่น เพิ่มลูกค้าตอนบ่าย / แก้วันหมดอายุ) → รอเวลาเดียวกันของวันถัดไป
+    if ($in_window) {
         $st = $db->prepare("SELECT * FROM renewals WHERE status = 'active' AND expires_on <= ? AND expires_on >= ? LIMIT 40");
         $st->execute([renew_today($remind_days), renew_today(-1)]);
         foreach ($st->fetchAll() as $r) {
@@ -905,11 +914,11 @@ function renew_sweep() {
         }
     }
 
-    // 2) เลยกำหนดต่อแล้ว ยังไม่ต่อ → บอกแอดมินให้ลบเมลออกจาก fam (ครั้งเดียวต่อรอบ)
+    // 2) เลยกำหนดต่อแล้ว ยังไม่ต่อ → บอกแอดมินให้ลบเมลออกจาก fam (ครั้งเดียวต่อรอบ · ส่งช่วงเวลาเดียวกับการเตือน)
     $grace = (int)renew_num('grace_days');
     $st = $db->prepare("SELECT * FROM renewals WHERE status = 'active' AND removed_at IS NULL AND expires_on < ? LIMIT 40");
     $st->execute([renew_today(-$grace)]);
-    foreach ($st->fetchAll() as $r) {
+    foreach ($in_window ? $st->fetchAll() : [] as $r) { // นอกช่วงเวลา → ไม่แจ้ง (รอช่วงเวลาถัดไป)
         if ($r['lapsed_for'] === $r['expires_on']) continue;
         $claim = $db->prepare("UPDATE renewals SET lapsed_for = ? WHERE id = ? AND (lapsed_for IS NULL OR lapsed_for <> ?)");
         $claim->execute([$r['expires_on'], $r['id'], $r['expires_on']]);
