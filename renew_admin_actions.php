@@ -114,6 +114,13 @@ try {
                           lapsed_for = CASE WHEN expires_on = ? THEN lapsed_for ELSE NULL END,
                           customer_email = ?, shop_email = ?, package_id = ?, expires_on = ?, note = ?, updated_at = ? WHERE id = ?")
                ->execute([$exp, $exp, $email, $fam, $pkg, $exp, $note, time(), $id]);
+            if ($r['expires_on'] !== $exp) {
+                // เปลี่ยนวันหมดอายุ = เริ่มรอบใหม่ → ล้างรายการรอจ่าย/สลิปค้างของรอบเก่า
+                // และไม่ให้การจ่ายรอบเก่าทำให้ระบบตอบลูกค้าว่า "ต่ออายุเรียบร้อยแล้ว"
+                $db->prepare("UPDATE renew_payments SET status = 'cancelled' WHERE renewal_id = ? AND status IN ('pending', 'slip')")->execute([$id]);
+                $db->prepare("UPDATE renew_payments SET status = 'paid_old' WHERE renewal_id = ? AND status = 'paid'")->execute([$id]);
+                renew_out(['success' => true, 'message' => 'บันทึกแล้ว · เริ่มรอบใหม่ (ล้างรายการชำระเงินค้างของรอบเก่าแล้ว)']);
+            }
             renew_out(['success' => true, 'message' => 'บันทึกแล้ว']);
         }
         $code = renew_new_link_code();
