@@ -198,6 +198,10 @@
         <input type="hidden" id="rfId">
         <label class="block space-y-1"><span class="text-[11px] font-bold text-gray-600">เมลลูกค้า (เมลที่อยู่ใน fam)</span>
             <input id="rfEmail" type="email" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-purple-600"></label>
+        <div class="space-y-1"><span class="block text-[11px] font-bold text-gray-600"><i class="fa-brands fa-line text-emerald-500 mr-1"></i>แชท LINE ลูกค้า</span>
+            <input id="rfLineQ" type="text" oninput="renewLineSearch(this.value)" placeholder="ค้นชื่อ LINE ลูกค้า" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-purple-600">
+            <select id="rfLine" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none bg-white"></select>
+            <p id="rfLineHint" class="text-[10px] text-gray-400">เลือกแชทแล้วไม่ต้องส่งรหัสให้ลูกค้า · ค้นได้เฉพาะคนที่เคยทักแชท LINE ร้านมาแล้ว</p></div>
         <label class="block space-y-1"><span class="text-[11px] font-bold text-gray-600">เมลร้าน (fam) ที่ลูกค้าอยู่</span>
             <select id="rfFamSelect" onchange="onRenewFamSelect()" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none bg-white"></select>
             <input id="rfFam" type="email" placeholder="พิมพ์เมลร้านใหม่" class="hidden w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-purple-600 mt-1.5"></label>
@@ -582,6 +586,9 @@
         document.getElementById('rfEmail').value = r ? r.customer_email : '';
         document.getElementById('rfNote').value = r ? r.note : '';
         document.getElementById('rfRemindAt').value = r && r.remind_at ? r.remind_at.replace(' ', 'T') : '';
+        document.getElementById('rfLineQ').value = '';
+        renewLineCur = r && r.line_user_id ? { id: r.line_user_id, name: r.line_name || 'ลูกค้า LINE' } : null;
+        renewLineFill('', renewLineCur ? renewLineCur.id : '');
         document.getElementById('rfPkg').innerHTML = RENEW.packages.filter(p => p.active || (r && p.id === r.package_id))
             .map(p => `<option value="${rEsc(p.id)}" data-days="${p.days}" ${r && p.id === r.package_id ? 'selected' : ''}>${rEsc(p.name)} · ${rBaht(p.price)} · ${p.days} วัน</option>`).join('');
         // เลือก fam: แนะนำเมลที่มีที่ว่างและใส่ไปมากสุด (เติมให้เต็มทีละเมล)
@@ -612,6 +619,38 @@
         document.getElementById('rfExp').value = x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
     }
 
+    // ---------- ค้นชื่อ LINE ----------
+    let renewLineCur = null;
+    function renewLineMatch(q) {
+        const k = q.trim().toLowerCase();
+        const all = RENEW.contacts || [];
+        return k ? all.filter(c => c.name.toLowerCase().includes(k)) : all;
+    }
+    function renewLineFill(q, value) {
+        const sel = document.getElementById('rfLine');
+        const shown = renewLineMatch(q).slice(0, 200);
+        let html = '<option value="">— ยังไม่ผูก (ส่งรหัสให้ลูกค้าพิมพ์ในแชท) —</option>';
+        if (value && !shown.some(c => c.id === value)) {
+            const c = (RENEW.contacts || []).find(x => x.id === value) || renewLineCur;
+            html += `<option value="${rEsc(value)}">${rEsc(c ? c.name : 'ลูกค้าที่เลือกไว้')}</option>`;
+        }
+        html += shown.map(c => `<option value="${rEsc(c.id)}">${rEsc(c.name)}</option>`).join('');
+        sel.innerHTML = html;
+        sel.value = value || '';
+        const k = q.trim();
+        const hint = document.getElementById('rfLineHint');
+        hint.className = 'text-[10px] ' + (k && !shown.length ? 'text-rose-600' : 'text-gray-400');
+        hint.innerText = !k ? 'เลือกแชทแล้วไม่ต้องส่งรหัสให้ลูกค้า · ค้นได้เฉพาะคนที่เคยทักแชท LINE ร้านมาแล้ว'
+            : !shown.length ? `ไม่พบ "${k}" — ระบบรู้จักเฉพาะคนที่ทักแชท LINE ร้านมา ให้ลูกค้าส่งข้อความมา 1 ครั้งแล้วกดรีเฟรช หรือเว้นไว้แล้วส่งรหัสให้ลูกค้าพิมพ์`
+            : shown.length > 1 ? `พบ ${shown.length} คน — เลือกในช่องด้านบน` : 'พบ 1 คน — เลือกให้แล้ว';
+    }
+    function renewLineSearch(q) {
+        const sel = document.getElementById('rfLine');
+        const m = renewLineMatch(q);
+        // พิมพ์จนเหลือคนเดียว → เลือกให้เลย
+        renewLineFill(q, q.trim() && m.length === 1 ? m[0].id : sel.value);
+    }
+
     function onRenewFamSelect() {
         const isNew = document.getElementById('rfFamSelect').value === '__new';
         document.getElementById('rfFam').classList.toggle('hidden', !isNew);
@@ -627,6 +666,7 @@
             expires_on: document.getElementById('rfExp').value,
             note: document.getElementById('rfNote').value.trim(),
             remind_at: document.getElementById('rfRemindAt').value,
+            line_user_id: document.getElementById('rfLine').value,
         });
         if (!j) return;
         document.getElementById('renewFormModal').classList.add('hidden');

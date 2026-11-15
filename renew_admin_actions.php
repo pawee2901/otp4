@@ -40,7 +40,7 @@ try {
             $list[] = [
                 'id' => $r['id'], 'customer_email' => $r['customer_email'], 'shop_email' => $r['shop_email'],
                 'package_id' => $r['package_id'], 'package' => $pk[$r['package_id']]['name'] ?? '-',
-                'line_linked' => (bool)$r['line_user_id'], 'line_name' => $r['line_name'], 'link_code' => $r['link_code'],
+                'line_linked' => (bool)$r['line_user_id'], 'line_user_id' => (string)($r['line_user_id'] ?? ''), 'line_name' => $r['line_name'], 'link_code' => $r['link_code'],
                 'expires_on' => $r['expires_on'], 'expires_th' => renew_date_th($r['expires_on']), 'left' => renew_days_left($r['expires_on']),
                 'deadline_th' => renew_date_th(renew_deadline($r)), 'fee' => $fee['fee'],
                 'note' => $r['note'], 'status' => $r['status'], 'removed' => !empty($r['removed_at']),
@@ -62,6 +62,9 @@ try {
         foreach ($log as &$l) $l['time'] = (new DateTime('@' . $l['created_at']))->setTimezone(new DateTimeZone('Asia/Bangkok'))->format('d/m H:i');
         unset($l);
         $admins = $db->query("SELECT display_name FROM renew_contacts WHERE is_admin = 1")->fetchAll(PDO::FETCH_COLUMN);
+        // คนที่เคยทักแชท LINE ร้าน (ใช้ค้นชื่อ LINE แล้วผูกให้ลูกค้าเลย ไม่ต้องส่งรหัส)
+        $contacts = array_map(function ($c) { return ['id' => $c['line_user_id'], 'name' => $c['display_name'] !== '' ? $c['display_name'] : 'ลูกค้า LINE']; },
+            $db->query("SELECT line_user_id, display_name FROM renew_contacts WHERE is_admin = 0 ORDER BY last_seen DESC LIMIT 2000")->fetchAll());
         $last_cron = (int)($db->query("SELECT v FROM renew_kv WHERE k = 'last_cron'")->fetchColumn() ?: 0);
         renew_out([
             'success' => true,
@@ -69,6 +72,7 @@ try {
             'renewals' => $list,
             'packages' => array_map(function ($p) { return ['id' => $p['id'], 'name' => $p['name'], 'price' => (float)$p['price'], 'days' => (int)$p['days'], 'active' => (bool)$p['active']]; }, $packages),
             'fams' => array_values($fams),
+            'contacts' => $contacts,
             'settings' => [
                 'line_token_set' => $st['line_token'] !== '', 'line_secret_set' => $st['line_secret'] !== '',
                 'slip2go_secret_set' => $st['slip2go_secret'] !== '',
@@ -109,6 +113,16 @@ try {
         // วัน-เวลาแจ้งเตือนกำหนดเอง (ไม่บังคับ) จาก <input type="datetime-local"> เช่น 2027-01-05T10:00
         $remind_at = str_replace('T', ' ', renew_post('remind_at'));
         if ($remind_at !== '' && !preg_match('/^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d$/', $remind_at)) renew_fail('วัน-เวลาแจ้งเตือนไม่ถูกต้อง');
+        // แชท LINE ที่เลือกจากการค้นชื่อ (ว่าง = ยังไม่ผูก ให้ลูกค้าพิมพ์รหัสเอง)
+        $line_uid = renew_post('line_user_id');
+        $line_name = '';
+        if ($line_uid !== '') {
+            $cst = $db->prepare("SELECT display_name FROM renew_contacts WHERE line_user_id = ?");
+            $cst->execute([$line_uid]);
+            $cn = $cst->fetchColumn();
+            if ($cn === false) renew_fail('ไม่พบแชท LINE ที่เลือก (ลูกค้าต้องทักแชทร้านมาก่อน)');
+            $line_name = (string)$cn;
+        }
         if ($id !== '') {
             $r = renew_get($id);
             if (!$r) renew_fail('ไม่พบรายการ', 404);
@@ -118,6 +132,13 @@ try {
                           reminded_for = ?, lapsed_for = ? WHERE id = ?")
                ->execute([$email, $fam, $pkg, $exp, $note, $remind_at !== '' ? $remind_at : null, time(),
                           $reset_remind ? null : $r['reminded_for'], $r['expires_on'] !== $exp ? null : $r['lapsed_for'], $id]);
+            if ($line_uid !== (string)($r['line_user_id'] ?? '')) {
+                if ($line_uid !== '') {
+                    $db->prepare("UPDATE renewals SET line_user_id = ?, line_name = ? WHERE id = ?")->execute([$line_uid, $line_name, $id]);
+                } else {
+                    $db->prepare("UPDATE renewals SET line_user_id = NULL, line_name = '', link_code = ? WHERE id = ?")->execute([renew_new_link_code(), $id]);
+                }
+            }
             if ($r['expires_on'] !== $exp) {
                 // เปลี่ยนวันหมดอายุ = เริ่มรอบใหม่ → ล้างรายการรอจ่าย/สลิปค้างของรอบเก่า
                 // และไม่ให้การจ่ายรอบเก่าทำให้ระบบตอบลูกค้าว่า "ต่ออายุเรียบร้อยแล้ว"
@@ -129,8 +150,9 @@ try {
         }
         $code = renew_new_link_code();
         $db->prepare("INSERT INTO renewals (id, customer_email, shop_email, package_id, line_user_id, line_name, link_code, expires_on, note, remind_at, status, renewed_count, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, NULL, '', ?, ?, ?, ?, 'active', 0, ?, ?)")
-           ->execute([renew_id('r'), $email, $fam, $pkg, $code, $exp, $note, $remind_at !== '' ? $remind_at : null, time(), time()]);
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, ?, ?)")
+           ->execute([renew_id('r'), $email, $fam, $pkg, $line_uid !== '' ? $line_uid : null, $line_name, $code, $exp, $note, $remind_at !== '' ? $remind_at : null, time(), time()]);
+        if ($line_uid !== '') renew_out(['success' => true, 'message' => 'เพิ่มลูกค้าแล้ว · ผูก LINE "' . $line_name . '" แล้ว']);
         renew_out(['success' => true, 'message' => 'เพิ่มลูกค้าแล้ว', 'link_code' => $code]);
     }
 
