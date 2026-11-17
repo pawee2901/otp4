@@ -45,6 +45,7 @@ try {
                 'deadline_th' => renew_date_th(renew_deadline($r)), 'fee' => $fee['fee'],
                 'note' => $r['note'], 'status' => $r['status'], 'removed' => !empty($r['removed_at']),
                 'reminded' => $r['reminded_for'] === $r['expires_on'], 'remind_at' => (string)($r['remind_at'] ?? ''),
+                'next_remind_th' => renew_next_remind_th($r),
                 'remind_at_th' => !empty($r['remind_at']) ? renew_date_th(substr($r['remind_at'], 0, 10)) . ' ' . substr($r['remind_at'], 11, 5) . ' น.' : '', 'renewed' => (int)$r['renewed_count'],
                 'pending' => isset($pending[$r['id']]) ? (float)$pending[$r['id']]['amount'] : null,
                 'pay_id' => $pending[$r['id']]['id'] ?? null,

@@ -17,7 +17,9 @@
             <input type="text" id="renewSearch" oninput="renderRenewList()" placeholder="ค้นหาเมลลูกค้า / เมลร้าน / ชื่อ LINE / รหัส"
                    class="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-xs focus:ring-2 focus:ring-purple-600 outline-none">
         </div>
+        <div class="flex items-center gap-2"><h3 class="text-sm font-extrabold text-gray-900">รายชื่อ (<span id="renewActiveCount">0</span>)</h3></div>
         <div class="flex flex-wrap gap-1.5" id="renewFilters"></div>
+        <div class="flex flex-wrap gap-1.5" id="renewViews"></div>
         <div id="renewList" class="space-y-2"><div class="py-8 text-center text-gray-400 text-xs"><i class="fa-solid fa-circle-notch fa-spin mr-1"></i> กำลังโหลด...</div></div>
     </div>
 
@@ -232,7 +234,9 @@
 
 <script>
     let RENEW = null;
-    let renewFilter = 'all';
+    let renewFilter = 'active';
+    let renewByFam = true;
+    const renewOpenFams = new Set();
     const rEsc = (t) => { const d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }; // textContent: คงบรรทัดใหม่ไว้ (innerText แปลงเป็น <br>)
     const rBaht = (n) => '฿' + Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
@@ -406,25 +410,70 @@
         return 'ok';
     }
 
+    // ตัวกรองรายชื่อ (แบบเว็บ mymuay)
+    const RENEW_FILTERS = [
+        ['active', 'ใช้งานอยู่', r => r.status === 'active'],
+        ['soon', 'ใกล้หมด', r => r.status === 'active' && !r.removed && r.fee === 0 && r.left <= RENEW.settings.remind_days],
+        ['late', 'เลยกำหนด / ลบแล้ว', r => r.status === 'active' && (r.removed || r.fee > 0)],
+        ['unlinked', 'ยังไม่ผูก LINE', r => r.status === 'active' && !r.line_linked],
+        ['off', 'เลิกต่อ', r => r.status !== 'active'],
+        ['all', 'ทั้งหมด', () => true],
+    ];
+    const rChip = (on) => `text-[11px] font-bold px-3 py-1 rounded-full border ${on ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`;
+
+    function renewToggleFam(k) {
+        if (renewOpenFams.has(k)) renewOpenFams.delete(k); else renewOpenFams.add(k);
+        renderRenewList();
+    }
+
     function renderRenewList() {
         if (!RENEW) return;
         const q = document.getElementById('renewSearch').value.trim().toLowerCase();
         const rows = RENEW.renewals;
-        const counts = { all: rows.length, soon: 0, expired: 0, removed: 0, unlinked: 0, stopped: 0 };
-        rows.forEach(r => { const st = renewStateOf(r); if (counts[st] !== undefined) counts[st]++; if (!r.line_linked && r.status === 'active') counts.unlinked++; });
-        const chips = [['all', 'ทั้งหมด'], ['soon', 'ใกล้หมด'], ['expired', 'หมดแล้ว'], ['removed', 'ลบเมลแล้ว'], ['unlinked', 'ยังไม่ผูก LINE'], ['stopped', 'หยุดแล้ว']];
-        document.getElementById('renewFilters').innerHTML = chips.map(([k, label]) =>
-            `<button type="button" onclick="renewFilter='${k}';renderRenewList()" class="text-[11px] font-bold px-2.5 py-1 rounded-lg border ${renewFilter === k ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-600 border-gray-200'}">${label} ${counts[k]}</button>`).join('');
-
-        const list = rows.filter(r => {
-            const st = renewStateOf(r);
-            if (renewFilter === 'unlinked' ? (r.line_linked || r.status !== 'active') : (renewFilter !== 'all' && st !== renewFilter)) return false;
-            if (!q) return true;
-            return [r.customer_email, r.shop_email, r.line_name, r.link_code, r.note].join(' ').toLowerCase().includes(q);
-        });
+        document.getElementById('renewActiveCount').innerText = rows.filter(r => r.status === 'active').length;
+        const flt = RENEW_FILTERS.find(f => f[0] === renewFilter) || RENEW_FILTERS[0];
+        // ค้นหา = ค้นทุกรายการ (ไม่สนตัวกรอง) จะได้ไม่หาไม่เจอเพราะลืมเปลี่ยนตัวกรอง
+        const list = q ? rows.filter(r => [r.customer_email, r.shop_email, r.line_name, r.link_code, r.note].join(' ').toLowerCase().includes(q))
+            : rows.filter(flt[2]);
+        document.getElementById('renewFilters').innerHTML = q ? '' : RENEW_FILTERS.map(([k, label, t]) =>
+            `<button type="button" onclick="renewFilter='${k}';renderRenewList()" class="${rChip(flt[0] === k)}">${label} ${rows.filter(t).length}</button>`).join('');
+        document.getElementById('renewViews').innerHTML = q || !list.length ? '' :
+            `<button type="button" onclick="renewByFam=true;renderRenewList()" class="${rChip(renewByFam)}">แยกตามแฟม</button>
+             <button type="button" onclick="renewByFam=false;renderRenewList()" class="${rChip(!renewByFam)}">รายชื่อเรียงวันหมด</button>`;
         const box = document.getElementById('renewList');
-        if (!list.length) { box.innerHTML = `<p class="text-center text-xs text-gray-400 py-6">${rows.length ? 'ไม่พบรายการ' : 'ยังไม่มีลูกค้าต่อเมล กดปุ่ม "เพิ่มลูกค้า"'}</p>`; return; }
-        box.innerHTML = list.map(r => {
+        if (!list.length) { box.innerHTML = `<p class="text-center text-xs text-gray-400 py-6">${!rows.length ? 'ยังไม่มีลูกค้าต่อเมล กดปุ่ม "เพิ่มลูกค้า"' : q ? 'ไม่พบรายการที่ค้น' : 'ไม่มีรายการในหมวดนี้'}</p>`; return; }
+        if (q || !renewByFam) { box.innerHTML = list.map(renewRowHtml).join(''); return; }
+
+        // แยกตามแฟม: หัวแฟม = เมลร้าน · ใช้ไป/เต็ม · ยังไม่ผูก LINE · ใกล้หมด · เลยกำหนด → กดเพื่อดูเมลในแฟม
+        const size = RENEW.settings.fam_size;
+        const groups = new Map();
+        list.forEach(r => { const k = (r.shop_email || '').trim().toLowerCase() || '__none'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
+        const openAll = renewFilter !== 'active' && renewFilter !== 'all';
+        const soonF = RENEW_FILTERS[1][2], lateF = RENEW_FILTERS[2][2], unlF = RENEW_FILTERS[3][2];
+        const tag = (cls, t) => `<span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full ${cls}">${t}</span>`;
+        box.innerHTML = [...groups.entries()].sort(([a], [b]) => (a === '__none') - (b === '__none') || a.localeCompare(b)).map(([k, members]) => {
+            const open = openAll || renewOpenFams.has(k);
+            const fam = RENEW.fams.find(f => f.email.toLowerCase() === k);
+            const used = fam ? fam.members.length : 0;
+            const unl = members.filter(unlF).length, soon = members.filter(soonF).length, late = members.filter(lateF).length;
+            return `<section class="border border-gray-200 rounded-2xl bg-white overflow-hidden">
+                <button type="button" onclick='renewToggleFam(${JSON.stringify(k)})' class="w-full flex flex-wrap items-center gap-2 px-4 py-3 text-left hover:bg-gray-50">
+                    <i class="fa-solid fa-caret-right text-gray-400 text-xs transition-transform ${open ? 'rotate-90' : ''}"></i>
+                    <span class="flex-1 min-w-[11rem] text-sm font-extrabold text-gray-900 break-all">${k === '__none' ? 'ไม่ระบุแฟม' : rEsc(k)}</span>
+                    <span class="flex flex-wrap gap-1.5 justify-start sm:justify-end">
+                        ${fam ? tag(used >= size ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-700', `${used}/${size}${used < size ? ' ว่าง ' + (size - used) : ' เต็ม'}`) : tag('bg-gray-100 text-gray-600', members.length + ' เมล')}
+                        ${unl ? tag('bg-amber-50 text-amber-700', 'ยังไม่ผูก LINE ' + unl) : ''}
+                        ${soon ? tag('bg-amber-50 text-amber-700', 'ใกล้หมด ' + soon) : ''}
+                        ${late ? tag('bg-rose-50 text-rose-600', 'เลยกำหนด ' + late) : ''}
+                    </span>
+                </button>
+                ${open ? `<div class="space-y-2 p-2 pt-0">${members.map(renewRowHtml).join('')}</div>` : ''}
+            </section>`;
+        }).join('');
+    }
+
+    function renewRowHtml(r) {
+        {
             const st = renewStateOf(r);
             const badge = {
                 ok: ['bg-emerald-50 text-emerald-700 border-emerald-200', `เหลือ ${r.left} วัน`],
@@ -449,7 +498,7 @@
                     <span class="text-gray-600 font-bold"><i class="fa-regular fa-calendar mr-0.5"></i>หมด ${rEsc(r.expires_th)}</span>
                     ${line}
                     ${r.reminded ? '<span class="text-sky-600 font-bold"><i class="fa-solid fa-paper-plane"></i> เตือนแล้ว</span>' : ''}
-                    ${r.remind_at && !r.reminded && r.status === 'active' ? `<span class="text-purple-700 font-bold"><i class="fa-regular fa-bell"></i> เตือน ${rEsc(r.remind_at_th)}</span>` : ''}
+                    ${!r.reminded && r.status === 'active' && !r.removed && r.next_remind_th ? `<span class="text-purple-700 font-bold"><i class="fa-regular fa-bell"></i> จะเตือน ${rEsc(r.next_remind_th)}</span>` : ''}
                     ${r.pending !== null && !r.slip_sent ? `<span class="text-purple-700 font-bold"><i class="fa-solid fa-qrcode"></i> รอจ่าย ${rBaht(r.pending)}</span>` : ''}
                     ${r.renewed ? `<span class="text-gray-400">ต่อแล้ว ${r.renewed} ครั้ง</span>` : ''}
                     ${r.note ? `<span class="text-gray-400 break-all">· ${rEsc(r.note)}</span>` : ''}
@@ -474,7 +523,7 @@
                     <span class="block text-[9px] font-bold text-purple-600 mt-1 group-hover:underline"><i class="fa-regular fa-eye mr-0.5"></i>ลูกค้าจะได้รับแบบนี้</span>
                 </button>
             </div>`;
-        }).join('');
+        }
     }
 
     // ---------- ตัวอย่างสิ่งที่ลูกค้าจะได้รับ (ตำแหน่งเดียวกับ renew_card_layout() / renew_pay_flex() ใน renew_lib.php) ----------

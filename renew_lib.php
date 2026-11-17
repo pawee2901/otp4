@@ -420,7 +420,8 @@ function line_reply($reply_token, $messages) {
 
 function line_push($to, $messages) {
     if (!$to || !$messages) return false;
-    [$http] = line_api('POST', 'message/push', ['to' => $to, 'messages' => array_slice($messages, 0, 5)]);
+    [$http, $res] = line_api('POST', 'message/push', ['to' => $to, 'messages' => array_slice($messages, 0, 5)]);
+    if ($http !== 200) $GLOBALS['line_last_error'] = 'HTTP ' . $http . ' ' . mb_substr((string)(json_decode((string)$res, true)['message'] ?? ''), 0, 150);
     return $http === 200;
 }
 
@@ -895,6 +896,28 @@ function renew_in_remind_window($now = null) {
     return (($cur - $start + 1440) % 1440) < 30; // รองรับช่วงข้ามเที่ยงคืน เช่น 23:45–00:14
 }
 
+// วัน-เวลาที่ระบบจะส่งการ์ดเตือนรอบนี้ (แสดงในหน้าแอดมิน) · '' = ส่งแล้ว/ไม่เตือน
+function renew_next_remind_th($r) {
+    if ($r['status'] !== 'active' || !empty($r['removed_at']) || $r['reminded_for'] === $r['expires_on']) return '';
+    $tz = new DateTimeZone('Asia/Bangkok');
+    $now = new DateTime('now', $tz);
+    if (!empty($r['remind_at'])) {
+        $at = $r['remind_at'];
+        return $at <= $now->format('Y-m-d H:i') ? 'รอบ cron ถัดไป (เลยเวลาที่ตั้งแล้ว)' : renew_date_th(substr($at, 0, 10)) . ' ' . substr($at, 11, 5) . ' น.';
+    }
+    if ($r['expires_on'] < renew_today(-1)) return '';
+    $t = renew_settings()['remind_time'];
+    if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $t)) $t = '09:00';
+    $day = (new DateTime($r['expires_on'], $tz))->modify('-' . (int)renew_num('remind_days') . ' day')->format('Y-m-d');
+    $today = $now->format('Y-m-d');
+    if ($day < $today) $day = $today; // ถึงช่วงเตือนแล้ว → เวลาที่ตั้งของวันนี้ (หรือพรุ่งนี้ถ้าเลยแล้ว)
+    if ($day === $today && !renew_in_remind_window($now) && $now->format('H:i') > $t) {
+        $day = (new DateTime($today, $tz))->modify('+1 day')->format('Y-m-d');
+    }
+    if ($day > (new DateTime($r['expires_on'], $tz))->modify('+1 day')->format('Y-m-d')) return ''; // เตือนได้ถึงวันหลังหมดอายุ 1 วัน (เหมือน renew_sweep)
+    return renew_date_th($day) . ' ' . $t . ' น.' . ($day === $today && renew_in_remind_window($now) ? ' (รอบ cron ถัดไป)' : '');
+}
+
 function renew_sweep() {
     $db = renew_db();
     $out = ['reminded' => 0, 'unlinked' => 0, 'lapsed' => 0, 'expired_qr' => 0];
@@ -905,12 +928,12 @@ function renew_sweep() {
     //    เลยช่วงไปแล้ว (เช่น เพิ่มลูกค้าตอนบ่าย / แก้วันหมดอายุ) → รอเวลาเดียวกันของวันถัดไป
     $due = [];
     if ($in_window) {
-        $st = $db->prepare("SELECT * FROM renewals WHERE status = 'active' AND (remind_at IS NULL OR remind_at = '') AND expires_on <= ? AND expires_on >= ? LIMIT 40");
+        $st = $db->prepare("SELECT * FROM renewals WHERE status = 'active' AND removed_at IS NULL AND (reminded_for IS NULL OR reminded_for <> expires_on) AND (remind_at IS NULL OR remind_at = '') AND expires_on <= ? AND expires_on >= ? LIMIT 40");
         $st->execute([renew_today($remind_days), renew_today(-1)]);
         $due = $st->fetchAll();
     }
     // วัน-เวลาที่แอดมินกำหนดเองรายคน (ข้ามวัน/ข้ามเดือนได้) → ส่งเมื่อถึงเวลานั้น ไม่ขึ้นกับช่วงเวลาอัตโนมัติ
-    $st = $db->prepare("SELECT * FROM renewals WHERE status = 'active' AND remind_at IS NOT NULL AND remind_at <> '' AND remind_at <= ? LIMIT 40");
+    $st = $db->prepare("SELECT * FROM renewals WHERE status = 'active' AND removed_at IS NULL AND (reminded_for IS NULL OR reminded_for <> expires_on) AND remind_at IS NOT NULL AND remind_at <> '' AND remind_at <= ? LIMIT 40");
     $st->execute([(new DateTime('now', new DateTimeZone('Asia/Bangkok')))->format('Y-m-d H:i')]);
     $due = array_merge($due, $st->fetchAll());
     {
@@ -920,11 +943,17 @@ function renew_sweep() {
             $claim->execute([$r['expires_on'], $r['id'], $r['expires_on']]);
             if ($claim->rowCount() !== 1) continue;
             $msg = renew_flex_message([$r]);
-            if ($r['line_user_id'] && $msg && line_push($r['line_user_id'], [$msg])) { $out['reminded']++; continue; }
+            if ($r['line_user_id'] && $msg && line_push($r['line_user_id'], [$msg])) {
+                $out['reminded']++;
+                renew_log('📨 ส่งการ์ดเตือนแล้ว', ["เมลลูกค้า: {$r['customer_email']}" . ($r['line_name'] !== '' ? " (LINE: {$r['line_name']})" : ''), 'หมดอายุ ' . renew_date_th($r['expires_on'])]);
+                continue;
+            }
             $out['unlinked']++;
+            $why = !$r['line_user_id'] ? "ยังไม่ผูกแชท — ส่งรหัส {$r['link_code']} ให้ลูกค้าพิมพ์ในแชท LINE ร้าน"
+                : (renew_settings()['line_token'] === '' ? 'ยังไม่ได้ใส่ Channel access token ในตั้งค่า'
+                : 'LINE ส่งไม่ผ่าน: ' . ($GLOBALS['line_last_error'] ?? '-') . ' (ลูกค้าบล็อก LINE ร้าน หรือโควตาข้อความหมด)');
             renew_notify_admin('📭 เตือนต่อเมลทาง LINE ไม่ได้', [
-                "เมลลูกค้า: {$r['customer_email']}", ($r['shop_email'] !== '' ? "fam: {$r['shop_email']}" : 'fam: -'), 'หมดอายุ ' . renew_date_th($r['expires_on']),
-                $r['line_user_id'] ? 'ลูกค้าบล็อก/ไม่ได้แอด LINE ร้าน — ทักไปบอกเอง' : "ยังไม่ผูกแชท — ส่งรหัส {$r['link_code']} ให้ลูกค้าพิมพ์ในแชท LINE ร้าน",
+                "เมลลูกค้า: {$r['customer_email']}", ($r['shop_email'] !== '' ? "fam: {$r['shop_email']}" : 'fam: -'), 'หมดอายุ ' . renew_date_th($r['expires_on']), $why,
             ]);
         }
     }
