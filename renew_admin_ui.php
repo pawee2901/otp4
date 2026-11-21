@@ -142,6 +142,7 @@
             <div><b>Webhook URL (ใส่ใน LINE Developers):</b> <code id="renewWebhookUrl" class="break-all"></code> <button type="button" onclick="renewCopy(document.getElementById('renewWebhookUrl').innerText)" class="text-purple-600 underline ml-1">คัดลอก</button></div>
             <div><b>URL งานอัตโนมัติ (ใส่ใน cron-job.org ทุก 15 นาที):</b> <code id="renewCronUrl" class="break-all"></code> <button type="button" onclick="renewCopy(document.getElementById('renewCronUrl').innerText)" class="text-purple-600 underline ml-1">คัดลอก</button>
                 <span id="renewLastCron" class="block text-gray-400"></span></div>
+            <div id="renewWebhookStat" class="text-[11px]"></div>
             <div><b>รหัสแอดมิน (พิมพ์ในแชท LINE ร้านเพื่อรับแจ้งเตือน):</b> <code id="renewAdminCode"></code> · <span id="renewAdmins" class="text-gray-500"></span></div>
         </div>
 
@@ -337,6 +338,8 @@
         const waiting = RENEW.renewals.filter(r => r.slip_sent).length;
         if (waiting) warn.unshift(`มีสลิปรอยืนยัน ${waiting} รายการ (ดูกรอบสีฟ้าในรายการ)`);
         if (!RENEW.packages.length) warn.push('ยังไม่มีแพ็กเกจ — เพิ่มแพ็กเกจก่อนเพิ่มลูกค้า');
+        if (s.webhook_bad_newer) warn.push('LINE ส่งข้อความมาแต่ Channel secret ไม่ตรง — ระบบอ่านข้อความลูกค้าไม่ได้ (ลูกค้าพิมพ์รหัสแล้วเงียบ) แก้ Channel secret ในตั้งค่า');
+        else if (!s.last_webhook_ok && s.line_secret_set) warn.push('ระบบยังไม่เคยได้รับข้อความจาก LINE — ลูกค้าพิมพ์รหัสแล้วจะเงียบ: เช็ค Webhook URL ใน LINE Developers ให้เป็นลิงก์ของเว็บนี้ และเปิด Use webhook');
         if (!s.last_cron) warn.push('งานอัตโนมัติยังไม่เคยทำงาน — ตั้ง cron-job.org ตาม URL ในส่วนตั้งค่า');
         const w = document.getElementById('renewSetupWarn');
         w.classList.toggle('hidden', !warn.length);
@@ -360,6 +363,8 @@
         document.getElementById('renewWebhookUrl2').innerText = s.webhook_url;
         document.getElementById('renewCronUrl').innerText = s.cron_url;
         document.getElementById('renewLastCron').innerText = s.last_cron ? `ทำงานล่าสุด: ${s.last_cron}` : 'ยังไม่เคยทำงาน';
+        document.getElementById('renewWebhookStat').innerHTML = (s.last_webhook_ok ? `<span class="text-emerald-700"><b>✓ ได้รับข้อความจาก LINE ล่าสุด:</b> ${rEsc(s.last_webhook_ok)}</span>` : '<span class="text-rose-600"><b>ยังไม่เคยได้รับข้อความจาก LINE</b> — เช็ค Webhook URL ใน LINE Developers และเปิด Use webhook</span>')
+            + (s.webhook_bad_newer ? `<span class="block text-rose-600"><b>⚠️ LINE ส่งมาแต่ลายเซ็นไม่ตรง (${rEsc(s.last_webhook_bad)})</b> — Channel secret ในตั้งค่าไม่ตรงกับ Channel ของ LINE OA นี้</span>` : '');
         document.getElementById('renewAdminCode').innerText = s.admin_code;
         document.getElementById('renewAdminCode2').innerText = s.admin_code;
         document.getElementById('renewAdmins').innerText = s.admins.length ? 'รับแจ้งเตือน: ' + s.admins.join(', ') : 'ยังไม่มีแอดมินรับแจ้งเตือนทาง LINE';

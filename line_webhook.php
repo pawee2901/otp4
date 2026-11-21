@@ -27,6 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 if (!line_signature_ok($raw, $sig)) {
+    // บันทึกไว้ให้แอดมินเห็น: LINE ส่งมาแต่ลายเซ็นไม่ตรง = Channel secret ในหน้าแอดมินผิด/คนละ Channel
+    if ($sig !== '') { try { renew_set('last_webhook_bad', (string)time()); } catch (Throwable $e) {} }
     http_response_code(401);
     echo 'bad signature';
     exit;
@@ -36,6 +38,7 @@ http_response_code(200);
 header('Content-Type: application/json');
 
 $body = json_decode($raw, true);
+try { renew_set('last_webhook_ok', (string)time()); } catch (Throwable $e) {}
 $forward = [];
 foreach (($body['events'] ?? []) as $ev) {
     $used = false;
@@ -43,6 +46,7 @@ foreach (($body['events'] ?? []) as $ev) {
         $used = renew_handle_event($ev);
     } catch (Throwable $e) {
         error_log('[line_webhook] ' . $e->getMessage());
+        try { renew_log('⚠️ ระบบต่อเมลรับข้อความ LINE แล้วเกิดข้อผิดพลาด', [mb_substr($e->getMessage(), 0, 300)]); } catch (Throwable $e2) {}
     }
     if (!$used) $forward[] = $ev;
 }

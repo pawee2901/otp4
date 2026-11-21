@@ -11,6 +11,15 @@ function renew_out($data, $code = 200) {
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
 }
+function renew_kv_get($k) {
+    $st = renew_db()->prepare("SELECT v FROM renew_kv WHERE k = ?");
+    $st->execute([$k]);
+    return (string)($st->fetchColumn() ?: '');
+}
+function renew_kv_time($k) {
+    $t = (int)renew_kv_get($k);
+    return $t ? (new DateTime('@' . $t))->setTimezone(new DateTimeZone('Asia/Bangkok'))->format('d/m H:i') : '';
+}
 function renew_fail($msg, $code = 400) { renew_out(['success' => false, 'message' => $msg], $code); }
 function renew_post($k, $default = '') { return isset($_POST[$k]) ? trim((string)$_POST[$k]) : $default; }
 function renew_valid_date($d) { return (bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) && strtotime($d) !== false; }
@@ -90,6 +99,8 @@ try {
                 'admin_code' => $st['admin_code'],
                 'webhook_url' => $site . '/line_webhook.php',
                 'cron_url' => $site . '/renew_cron.php?key=' . $st['cron_key'],
+                'last_webhook_ok' => renew_kv_time('last_webhook_ok'), 'last_webhook_bad' => renew_kv_time('last_webhook_bad'),
+                'webhook_bad_newer' => (int)renew_kv_get('last_webhook_bad') > (int)renew_kv_get('last_webhook_ok'),
                 'last_cron' => $last_cron ? (new DateTime('@' . $last_cron))->setTimezone(new DateTimeZone('Asia/Bangkok'))->format('d/m H:i') : '',
                 'admins' => $admins,
             ],

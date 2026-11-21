@@ -408,7 +408,12 @@ function line_api($method, $path, $body = null, $host = 'api.line.me') {
 
 function line_reply($reply_token, $messages) {
     if (!$messages) return false;
-    [$http] = line_api('POST', 'message/reply', ['replyToken' => $reply_token, 'messages' => array_slice($messages, 0, 5)]);
+    [$http, $res] = line_api('POST', 'message/reply', ['replyToken' => $reply_token, 'messages' => array_slice($messages, 0, 5)]);
+    if ($http !== 200) {
+        // ตอบลูกค้าไม่สำเร็จ (token ผิด/หมดอายุ ฯลฯ) → บันทึกให้แอดมินเห็น
+        renew_log('⚠️ ตอบลูกค้าใน LINE ไม่สำเร็จ', ['HTTP ' . $http . ' ' . mb_substr((string)(json_decode((string)$res, true)['message'] ?? ''), 0, 150),
+            $http === 401 ? 'Channel access token ผิดหรือหมดอายุ — ออก token ใหม่ใน LINE Developers แล้ววางในตั้งค่า' : ($http === 0 ? 'ยังไม่ได้ใส่ Channel access token' : '')]);
+    }
     return $http === 200;
 }
 
