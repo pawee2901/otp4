@@ -137,7 +137,7 @@ function renew_setting_defaults() {
         'line_secret'      => '',
         'line_oa_id'       => '',      // เช่น @monalishop (ใช้ทำลิงก์แอดเพื่อน)
         'forward_webhook'  => '',      // Webhook เดิมของ OA (เช่น Slip2Go) — ส่งต่อเหตุการณ์ที่ระบบนี้ไม่ได้ใช้
-        'slip_mode'        => 'chat',  // chat = ให้ Slip2Go ในแชทของร้านตรวจ แล้วแอดมินกดยืนยัน · api = ระบบตรวจผ่าน Slip2Go API แล้วต่อให้เอง
+        'slip_mode'        => 'chat',  // ตรวจสลิปโดยแอดมินเท่านั้น (เดิม: ให้ Slip2Go ในแชทตรวจ · api = ระบบตรวจผ่าน Slip2Go API แล้วต่อให้เอง
         'slip2go_url'      => '',      // Base URL จากหน้า Slip2Go (API Connect)
         'slip2go_secret'   => '',
         'promptpay_id'     => '',      // เบอร์ 10 หลัก / เลข 13 หลัก / e-Wallet 15 หลัก
@@ -208,12 +208,6 @@ function renew_msg_defs() {
         'msg_slip_received' => ['label' => 'ได้รับสลิป — รอแอดมินอนุมัติ', 'when' => 'ลูกค้าส่งสลิปค่าต่อเมล (แบบแอดมินกดยืนยัน) — Slip2Go ในแชทยังตรวจและตอบตามปกติ',
             'vars' => ['email', 'amount'],
             'default' => "ได้รับสลิปแล้วค่ะ 🙏\nรอแอดมินอนุมัติการต่ออายุสักครู่นะคะ เมื่อต่อเรียบร้อยระบบจะแจ้งในแชทนี้ค่ะ"],
-        'msg_slip_failed' => ['label' => 'สลิปไม่ผ่าน (ตรวจอัตโนมัติ)', 'when' => 'ระบบตรวจสลิปผ่าน Slip2Go API แล้วไม่ผ่าน',
-            'vars' => ['reason', 'email', 'amount'],
-            'default' => "❌ {reason}\n\nหากโอนแล้วจริง กรุณาทักแอดมินพร้อมสลิปค่ะ"],
-        'msg_slip_manual' => ['label' => 'ระบบตรวจสลิปขัดข้อง', 'when' => 'Slip2Go API ใช้ไม่ได้ (key ผิด / token หมด) — แอดมินจะตรวจเอง',
-            'vars' => ['email', 'amount'],
-            'default' => "ได้รับสลิปแล้วค่ะ ระบบตรวจอัตโนมัติขัดข้อง แอดมินจะตรวจและต่ออายุให้เร็วที่สุดนะคะ 🙏"],
         'msg_slip_rejected' => ['label' => 'แอดมินกด "สลิปไม่ผ่าน"', 'when' => 'แอดมินกดสลิปไม่ผ่านในหลังบ้าน',
             'vars' => ['email', 'amount'],
             'default' => "❌ สลิปค่าต่ออายุยังไม่ผ่านการตรวจค่ะ กรุณาทักแอดมินพร้อมสลิป หรือพิมพ์ \"ต่อเมล\" เพื่อทำรายการใหม่"],
@@ -664,7 +658,7 @@ function renew_pay_text($pay, $r, $pay_hint) {
         'package' => $pay['package']['name'], 'days' => (int)$pay['package']['days'], 'amount' => renew_baht($pay['amount']),
         'fee_line' => $pay['fee']['fee'] > 0 ? "ค่า{$pay['fee']['why']}: " . renew_baht($pay['fee']['fee']) . "\n" : '',
         'pay_hint' => $pay_hint,
-        'after_slip' => renew_settings()['slip_mode'] === 'api' ? 'ระบบจะต่ออายุให้อัตโนมัติ' : 'ตรวจสลิปแล้วแอดมินจะยืนยันการต่ออายุให้ค่ะ',
+        'after_slip' => 'ตรวจสลิปแล้วแอดมินจะยืนยันการต่ออายุให้ค่ะ',
     ]));
 }
 
@@ -730,17 +724,34 @@ function renew_pending_payment($line_user_id) {
     return $st->fetch() ?: null;
 }
 
-// โหมด chat: ลูกค้าส่งสลิปค่าต่อเมล → ให้ Slip2Go ในแชทของร้านตรวจ (ไม่ตรวจซ้ำ) แล้วรอแอดมินกดยืนยัน
+// รายการที่ลูกค้าส่งสลิปแล้ว รอแอดมินตรวจ (ลูกค้าส่งรูปซ้ำ/ส่งสลิปใหม่)
+function renew_slip_payment($line_user_id) {
+    $st = renew_db()->prepare("SELECT * FROM renew_payments WHERE line_user_id = ? AND status = 'slip' ORDER BY created_at DESC LIMIT 1");
+    $st->execute([$line_user_id]);
+    return $st->fetch() ?: null;
+}
+
+// เก็บรูปสลิปไว้ให้แอดมินดูในหลังบ้าน (ในฐานข้อมูล · ลบเมื่อยืนยัน/ปฏิเสธเกิน 30 วัน)
+function renew_save_slip($pay_id, $img) {
+    if (strlen($img) > 5 * 1024 * 1024) return;
+    $mime = (new finfo(FILEINFO_MIME_TYPE))->buffer($img) ?: 'image/jpeg';
+    if (strpos($mime, 'image/') !== 0) return;
+    $db = renew_db();
+    $db->prepare("DELETE FROM renew_files WHERE k = ?")->execute(['slip_' . $pay_id]);
+    $db->prepare("INSERT INTO renew_files (k, mime, data, updated_at) VALUES (?, ?, ?, ?)")->execute(['slip_' . $pay_id, $mime, base64_encode($img), time()]);
+}
+
+// ลูกค้าส่งสลิปค่าต่อเมล → รอแอดมินตรวจในหลังบ้านแล้วกดยืนยัน (แจ้งแอดมินครั้งแรกครั้งเดียว)
 function renew_mark_slip_received($pay) {
     $st = renew_db()->prepare("UPDATE renew_payments SET status = 'slip', last_error = NULL WHERE id = ? AND status = 'pending'");
     $st->execute([$pay['id']]);
     if ($st->rowCount() !== 1) return false;
     $r = renew_get($pay['renewal_id']);
     $pkg = renew_package($pay['package_id']);
-    renew_notify_admin('📩 ลูกค้าส่งสลิปค่าต่อเมล — ดูผลตรวจในแชทแล้วกดยืนยัน', [
+    renew_notify_admin('📩 ลูกค้าส่งสลิปค่าต่อเมล — รอแอดมินตรวจ', [
         'เมลลูกค้า: ' . ($r['customer_email'] ?? '-'), 'fam: ' . (($r['shop_email'] ?? '') !== '' ? $r['shop_email'] : '-'),
         'แพ็กเกจ: ' . ($pkg['name'] ?? '-') . ' · ยอด ' . renew_baht($pay['amount']),
-        'ถ้าสลิปผ่าน → หลังบ้าน → ต่อเมล → กด "ยืนยันรับเงิน" ระบบจะต่อวันและแจ้งลูกค้าให้เอง',
+        'หลังบ้าน → ต่อเมล → กด "ดูสลิป" ตรวจแล้วกด "ยืนยันรับเงิน" ระบบจะต่อวันและแจ้งลูกค้าให้เอง',
     ]);
     return true;
 }
@@ -763,126 +774,6 @@ function renew_confirm_payment($payment_id) {
         line_push($r['line_user_id'], [line_text(renew_msg('msg_renewed', renew_msg_vars($r, ['package' => $pkg['name'] ?? '', 'readd_line' => renew_readd_line((int)$pay['readd'])])))]);
     }
     return ['ok' => true, 'until' => $new_exp, 'readd' => (bool)(int)$pay['readd']];
-}
-
-// ---------------------------------------------------------------- Slip2Go
-function slip2go_check($image_bytes, $amount) {
-    $st = renew_settings();
-    $base = rtrim($st['slip2go_url'], '/');
-    if ($base === '' || $st['slip2go_secret'] === '') return ['ok' => false, 'config' => true, 'message' => 'ยังไม่ได้ตั้งค่า Slip2Go'];
-    $tmp = tempnam(sys_get_temp_dir(), 'slip');
-    file_put_contents($tmp, $image_bytes);
-    $mime = (substr($image_bytes, 0, 4) === "\x89PNG") ? 'image/png' : 'image/jpeg';
-    $payload = ['checkDuplicate' => true];
-    if ($recv = renew_receivers()) $payload['checkReceiver'] = $recv;
-    $ch = curl_init($base . '/api/verify-slip/qr-image/info');
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $st['slip2go_secret']],
-        CURLOPT_POSTFIELDS => ['file' => new CURLFile($tmp, $mime, $mime === 'image/png' ? 'slip.png' : 'slip.jpg'), 'payload' => json_encode($payload)],
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 25,
-    ]);
-    $res = curl_exec($ch);
-    $http = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    @unlink($tmp);
-    $j = json_decode((string)$res, true);
-    $code = (string)($j['code'] ?? '');
-    if (!is_array($j)) {
-        error_log('[slip2go] HTTP ' . $http . ' ' . substr((string)$res, 0, 300));
-        return ['ok' => false, 'retry' => true, 'message' => 'ระบบตรวจสลิปขัดข้องชั่วคราว กรุณาส่งสลิปอีกครั้งในอีกสักครู่'];
-    }
-    if ($code === '200000' || $code === '200200') {
-        return ['ok' => true, 'data' => $j['data'] ?? []];
-    }
-    $map = [
-        '200401' => ['บัญชีผู้รับในสลิปไม่ใช่บัญชีของร้าน', false],
-        '200402' => ['ยอดเงินในสลิปไม่ตรง', false],
-        '200403' => ['วันที่โอนในสลิปไม่ตรง', false],
-        '200404' => ['ยังไม่พบสลิปนี้ในระบบธนาคาร (สลิปเพิ่งโอนอาจต้องรอ 1-2 นาที) กรุณาส่งสลิปอีกครั้ง', true],
-        '200500' => ['สลิปไม่ถูกต้อง/ถูกแก้ไข', false],
-        '200501' => ['สลิปนี้ถูกใช้ไปแล้ว', false],
-        '200502' => ['ธนาคารขัดข้องชั่วคราว กรุณาส่งสลิปอีกครั้งในอีกสักครู่', true],
-        '400002' => ['อ่านรูปสลิปไม่ได้ กรุณาส่งรูปสลิปที่เห็น QR ชัด ๆ', false],
-        '429000' => ['ระบบตรวจสลิปไม่ว่าง กรุณาส่งสลิปอีกครั้งในอีกสักครู่', true],
-        '500500' => ['ระบบตรวจสลิปขัดข้องชั่วคราว กรุณาส่งสลิปอีกครั้งในอีกสักครู่', true],
-        '500503' => ['ระบบตรวจสลิปปิดปรับปรุงชั่วคราว กรุณาส่งสลิปอีกครั้งภายหลัง', true],
-    ];
-    if (isset($map[$code])) return ['ok' => false, 'retry' => $map[$code][1], 'code' => $code, 'message' => $map[$code][0]];
-    if (strpos($code, '401') === 0) {
-        return ['ok' => false, 'config' => true, 'code' => $code, 'message' => 'Slip2Go: ' . ($j['message'] ?? $code)];
-    }
-    return ['ok' => false, 'retry' => false, 'code' => $code, 'message' => 'ตรวจสลิปไม่ผ่าน (' . ($j['message'] ?? $code) . ')'];
-}
-
-// บัญชีผู้รับที่ยอมรับ (Slip2Go checkReceiver) จาก "ประเภท:เลข, ประเภท:เลข" หรือเลขอย่างเดียว (ใช้ประเภทจากช่อง Account type)
-function renew_receivers() {
-    $st = renew_settings();
-    $out = [];
-    foreach (preg_split('/[\s,]+/', trim($st['receiver_account'])) as $item) {
-        if ($item === '') continue;
-        [$type, $acc] = strpos($item, ':') !== false ? explode(':', $item, 2) : [$st['receiver_type'], $item];
-        $type = preg_replace('/\D/', '', $type);
-        $acc = preg_replace('/[^0-9A-Za-z]/', '', $acc);
-        if ($type !== '' && $acc !== '') $out[] = ['accountType' => $type, 'accountNumber' => $acc];
-    }
-    return $out;
-}
-
-// ลูกค้าส่งรูปสลิป → ตรวจ → ต่ออายุ · คืนข้อความตอบกลับ
-function renew_handle_slip($pay, $image_bytes) {
-    $db = renew_db();
-    $fail = function ($msg, $count = true) use ($db, $pay) {
-        $db->prepare("UPDATE renew_payments SET last_error = ?" . ($count ? ", attempts = attempts + 1" : "") . " WHERE id = ?")
-           ->execute([mb_substr($msg, 0, 490), $pay['id']]);
-        $r = renew_get($pay['renewal_id']) ?: [];
-        return [line_text(renew_msg('msg_slip_failed', renew_msg_vars($r, ['reason' => $msg, 'amount' => renew_baht($pay['amount'])])))];
-    };
-    if ((int)$pay['attempts'] >= RENEW_MAX_ATTEMPT) {
-        return [line_text('ส่งสลิปเกินจำนวนครั้งที่กำหนด กรุณาทักแอดมินพร้อมสลิปค่ะ')];
-    }
-    $amount = (float)$pay['amount'];
-    $res = slip2go_check($image_bytes, $amount);
-    if (!$res['ok']) {
-        if (!empty($res['config'])) {
-            renew_notify_admin('🚨 ตรวจสลิปไม่ได้ — ตั้งค่า Slip2Go', [$res['message'], 'ลูกค้ารอต่ออายุอยู่ ยอด ' . renew_baht($amount) . ' — ตรวจสลิปเอง แล้วกด "ต่อเอง" ในหลังบ้าน']);
-            return [line_text(renew_msg('msg_slip_manual', renew_msg_vars(renew_get($pay['renewal_id']) ?: [], ['amount' => renew_baht($amount)])))];
-        }
-        return $fail($res['message'], empty($res['retry']));
-    }
-    $d = $res['data'];
-    $slip_amount = (float)($d['amount'] ?? 0);
-    $extra = renew_num('amount_extra'); // เช่น โอนผ่าน Wallet +5 บาท
-    if ($slip_amount + 0.005 < $amount || $slip_amount - $amount > $extra + 0.005) {
-        return $fail('ยอดในสลิป ' . renew_baht($slip_amount) . ' ไม่ตรงกับยอดที่ต้องโอน ' . renew_baht($amount) . ($extra > 0 ? ' (เกินได้ไม่เกิน ' . renew_baht($extra) . ')' : ''));
-    }
-    $paid_ts = strtotime((string)($d['dateTime'] ?? '')) ?: 0;
-    if (!$paid_ts) return $fail('อ่านเวลาโอนในสลิปไม่ได้');
-    if ($paid_ts < (int)$pay['created_at'] - 300) return $fail('สลิปนี้โอนก่อนกดเลือกแพ็กเกจ ใช้กับรายการนี้ไม่ได้');
-    $trans_ref = mb_substr((string)($d['transRef'] ?? ''), 0, 64);
-    if ($trans_ref === '') return $fail('อ่านเลขอ้างอิงในสลิปไม่ได้');
-
-    // ปิดรายการ (กันต่อซ้ำ: เปลี่ยนสถานะได้ครั้งเดียว · trans_ref ซ้ำ = สลิปเคยใช้แล้ว)
-    try {
-        $st = $db->prepare("UPDATE renew_payments SET status = 'paid', paid_at = ?, trans_ref = ? WHERE id = ? AND status = 'pending'");
-        $st->execute([time(), $trans_ref, $pay['id']]);
-        if ($st->rowCount() !== 1) return [line_text('รายการนี้ชำระเรียบร้อยแล้วค่ะ')];
-    } catch (Throwable $e) {
-        return $fail('สลิปนี้ถูกใช้ไปแล้ว');
-    }
-    $pkg = renew_package($pay['package_id']);
-    $days = (int)($pkg['days'] ?? 30);
-    $new_exp = renew_extend($pay['renewal_id'], $pay['package_id'], $days);
-    $r = renew_get($pay['renewal_id']);
-    $info = ["เมลลูกค้า: {$r['customer_email']}", ($r['shop_email'] !== '' ? "fam: {$r['shop_email']}" : 'fam: -'),
-             'แพ็กเกจ: ' . ($pkg['name'] ?? '-') . ' · ยอด ' . renew_baht($amount), 'ใช้ได้ถึง ' . renew_date_th($new_exp)];
-    if ((int)$pay['readd']) {
-        renew_notify_admin('➕ ลูกค้าต่อหลังลบเมล — เชิญเมลกลับเข้า fam', array_merge($info, ['⚠️ ระบบต่อวันให้แล้ว แต่ต้องเชิญเมลลูกค้ากลับเข้า fam เอง']));
-    } else {
-        renew_notify_admin('🔁 ลูกค้าต่อเมลแล้ว (จ่ายผ่าน LINE)', $info);
-    }
-    return [line_text(renew_msg('msg_renewed', renew_msg_vars($r, ['package' => $pkg['name'] ?? '', 'readd_line' => renew_readd_line((int)$pay['readd'])])))];
 }
 
 // ---------------------------------------------------------------- งานเป็นรอบ (renew_cron.php)
@@ -975,7 +866,10 @@ function renew_sweep() {
         ]);
     }
 
-    // 3) QR ที่หมดเวลาแล้ว
+    // 3) รูปสลิปเก่า (เกิน 30 วัน) ลบออกจากฐานข้อมูล
+    $db->prepare("DELETE FROM renew_files WHERE k LIKE 'slip\_%' AND updated_at < ?")->execute([time() - 30 * 86400]);
+
+    // 4) QR ที่หมดเวลาแล้ว
     $st = $db->prepare("UPDATE renew_payments SET status = 'expired' WHERE status = 'pending' AND expires_at < ?");
     $st->execute([time() - RENEW_SLIP_GRACE]);
     $out['expired_qr'] = $st->rowCount();

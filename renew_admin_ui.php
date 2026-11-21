@@ -6,7 +6,7 @@
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
                 <div class="flex items-center gap-2"><i class="fa-solid fa-repeat text-purple-600"></i><h2 class="text-base font-extrabold text-gray-900">ต่อเมล (เมลลูกค้าใน fam)</h2></div>
-                <p class="text-xs text-gray-400 mt-0.5">เตือนลูกค้าทาง LINE ก่อนหมดอายุ · ลูกค้าจ่ายผ่าน QR ในแชท · ตรวจสลิปด้วย Slip2Go แล้วต่อวันให้เอง</p>
+                <p class="text-xs text-gray-400 mt-0.5">เตือนลูกค้าทาง LINE ก่อนหมดอายุ · ลูกค้าโอนแล้วส่งสลิปในแชท · แอดมินตรวจสลิปแล้วกดยืนยัน ระบบต่อวันให้เอง</p>
             </div>
             <button type="button" onclick="openRenewForm()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm flex items-center gap-1.5 self-start sm:self-auto">
                 <i class="fa-solid fa-plus"></i><span>เพิ่มลูกค้า</span>
@@ -53,10 +53,9 @@
             <summary class="font-bold text-sky-800 cursor-pointer">วิธีตั้งค่าครั้งแรก (กดเพื่อดู)</summary>
             <ol class="list-decimal pl-5 mt-2 space-y-1.5 leading-relaxed">
                 <li><b>LINE Developers</b> → เลือก Channel ของ LINE OA ร้าน (Messaging API) → แท็บ <b>Basic settings</b> คัดลอก <b>Channel secret</b> · แท็บ <b>Messaging API</b> กด Issue <b>Channel access token</b> แล้ววางในช่องด้านล่าง</li>
-                <li><b>ถ้าช่อง Webhook URL ใน LINE Developers มีลิงก์ของบริการอื่นอยู่แล้ว (เช่น Slip2Go ตรวจสลิปในแชท)</b> → คัดลอกลิงก์นั้นมาใส่ช่อง <b>"Webhook เดิม (ส่งต่อ)"</b> ด้านล่างก่อน แล้วกดบันทึก — บริการเดิมจะยังทำงานเหมือนเดิม</li>
+                <li><b>ถ้าช่อง Webhook URL ใน LINE Developers มีลิงก์ของบริการอื่นอยู่แล้ว</b> → คัดลอกลิงก์นั้นมาใส่ช่อง <b>"Webhook เดิม (ส่งต่อ)"</b> ด้านล่างก่อน แล้วกดบันทึก — บริการเดิมจะยังทำงานเหมือนเดิม</li>
                 <li>แท็บ Messaging API → <b>Webhook URL</b> ใส่ <code id="renewWebhookUrl2" class="bg-white px-1 rounded break-all"></code> แทน → กด Update → Verify → เปิด <b>Use webhook</b></li>
                 <li>LINE Official Account Manager → ตั้งค่าการตอบกลับ: เปิด <b>Webhook</b> และ<b>ปิดข้อความตอบกลับอัตโนมัติ</b> (ไม่งั้นบอทจะตอบซ้อน) — แชทกับแอดมินยังใช้ได้ตามปกติ</li>
-                <li><b>Slip2Go</b> → เมนู API Connect: คัดลอก <b>API URL</b> และ <b>Secret Key</b> มาใส่ด้านล่าง (ถ้าตั้ง IP Whitelist ไว้ ต้องปิดหรือเพิ่ม IP ของ Render)</li>
                 <li>ใส่ <b>พร้อมเพย์</b> ที่จะรับเงิน (QR สร้างยอดพอดีให้ลูกค้าอัตโนมัติ)</li>
                 <li><b>cron-job.org</b> → เพิ่ม Cronjob เรียก URL งานอัตโนมัติด้านล่าง <b>ทุก 15 นาที</b> (ใช้ส่งเตือนก่อนหมดอายุ)</li>
                 <li>แอดมินพิมพ์ <b id="renewAdminCode2"></b> ในแชท LINE ร้าน (จาก LINE ส่วนตัว) เพื่อรับแจ้งเตือน เช่น ลูกค้าต่อแล้ว / เลยกำหนดต้องลบเมล</li>
@@ -70,36 +69,13 @@
                 <input id="rsLineSecret" type="password" placeholder="เว้นว่าง = ไม่เปลี่ยน" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">LINE OA ID (เช่น @monalishop)</span>
                 <input id="rsOaId" type="text" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
-            <label class="space-y-1 sm:col-span-2"><span class="text-[11px] font-bold text-gray-600">Webhook เดิม (ส่งต่อ) — ลิงก์ที่เคยอยู่ในช่อง Webhook URL ของ LINE เช่น ของ Slip2Go · เว้นว่างถ้าไม่มี</span>
+            <label class="space-y-1 sm:col-span-2"><span class="text-[11px] font-bold text-gray-600">Webhook เดิม (ส่งต่อ) — ลิงก์ที่เคยอยู่ในช่อง Webhook URL ของ LINE · เว้นว่างถ้าไม่มี</span>
                 <input id="rsForward" type="text" placeholder="https://..." class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600">
-                <span class="block text-[10px] text-gray-400">ข้อความที่ไม่ใช่เรื่องต่อเมล (เช่น สลิปซื้อของปกติ) จะถูกส่งต่อไปที่ลิงก์นี้ บริการเดิมจึงยังตรวจสลิป/ตอบแชทได้เหมือนเดิม</span></label>
+                <span class="block text-[10px] text-gray-400">ข้อความที่ไม่ใช่เรื่องต่อเมลจะถูกส่งต่อไปที่ลิงก์นี้ บริการเดิมจึงทำงานได้เหมือนเดิม · สลิปค่าต่อเมลไม่ส่งต่อ (แอดมินตรวจเองในหลังบ้าน)</span></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">พร้อมเพย์รับเงิน (เบอร์ / เลข 13 หลัก)</span>
                 <input id="rsPromptpay" type="text" inputmode="numeric" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
             <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">ชื่อบัญชีผู้รับ (แสดงให้ลูกค้า)</span>
                 <input id="rsPayName" type="text" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
-            <label class="space-y-1 sm:col-span-2"><span class="text-[11px] font-bold text-gray-600">วิธีตรวจสลิปค่าต่อเมล</span>
-                <select id="rsSlipMode" onchange="document.getElementById('rsApiBox').classList.toggle('opacity-50', this.value !== 'api')" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none bg-white">
-                    <option value="api">อัตโนมัติ — ระบบตรวจสลิปผ่าน Slip2Go API แล้วต่ออายุ + ตอบลูกค้าทันที (แอดมินไม่ต้องกด)</option>
-                    <option value="chat">ให้ Slip2Go ในแชทของร้านตรวจ แล้วแอดมินกด "ยืนยันรับเงิน" (ไม่ต้องใช้ API)</option>
-                </select></label>
-            <div id="rsApiBox" class="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">Slip2Go API URL (เฉพาะแบบตรวจเองผ่าน API)</span>
-                <input id="rsSlipUrl" type="text" placeholder="https://..." class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
-            <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">Slip2Go Secret Key <span id="rsSlipSet" class="text-emerald-600"></span></span>
-                <input id="rsSlipSecret" type="password" placeholder="เว้นว่าง = ไม่เปลี่ยน" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
-            </div>
-            <label class="space-y-1"><span class="text-[11px] font-bold text-gray-600">รับยอดในสลิปเกินได้ไม่เกิน (บาท) — เช่น โอนผ่าน Wallet +5</span>
-                <input id="rsAmountExtra" type="number" min="0" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:ring-2 focus:ring-purple-600"></label>
-            <details class="sm:col-span-2 text-[11px] text-gray-500" open>
-                <summary class="cursor-pointer font-bold">ตรวจบัญชีผู้รับในสลิป (แนะนำ — กันสลิปที่โอนเข้าบัญชีอื่น)</summary>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
-                    <label class="space-y-1 sm:col-span-2"><span class="font-bold text-gray-600">บัญชีที่รับเงิน ใส่ได้หลายบัญชี รูปแบบ <code>ประเภท:เลข</code> คั่นด้วยจุลภาค</span>
-                        <input id="rsRecvAcc" type="text" placeholder="01004:1848641592, 04000:0813154812" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none">
-                        <span class="block text-[10px] text-gray-400">ประเภทของ Slip2Go: 01004 = กสิกร (K Plus) · 04000 = TrueMoney Wallet · 02001 = พร้อมเพย์เบอร์มือถือ</span></label>
-                    <label class="space-y-1"><span class="font-bold text-gray-600">ประเภทตั้งต้น (ถ้าใส่แค่เลข)</span>
-                        <input id="rsRecvType" type="text" placeholder="01004" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none"></label>
-                </div>
-            </details>
         </div>
 
         <div class="border-t border-gray-100 pt-4 space-y-3">
@@ -295,7 +271,7 @@
             email: 'customer@gmail.com', expiry: rThai(rAddDays(RENEW.today, 3)), package: (RENEW.packages[0] || {}).name || 'Youtube ต่อเมล',
             days: (RENEW.packages[0] || {}).days || 30, amount: rBaht((RENEW.packages[0] || {}).price || 79), fee_line: '',
             pay_hint: s.pay_mode === 'static' ? 'โอนยอดนี้ตามช่องทางในรูปด้านบน' : 'สแกน QR ด้านบนจ่ายยอดนี้พอดี · QR ใช้ได้ 15 นาที',
-            after_slip: s.slip_mode === 'api' ? 'ระบบจะต่ออายุให้อัตโนมัติ' : 'ตรวจสลิปแล้วแอดมินจะยืนยันการต่ออายุให้ค่ะ',
+            after_slip: 'ตรวจสลิปแล้วแอดมินจะยืนยันการต่ออายุให้ค่ะ',
             readd_line: '', reason: 'ยอดในสลิป ฿78 ไม่ตรงกับยอดที่ต้องโอน ฿79', code: 'R12345', add_friend: renewAddFriend(), remind_days: s.remind_days,
         };
     }
@@ -358,8 +334,6 @@
         const warn = [];
         if (!s.line_token_set || !s.line_secret_set) warn.push('ยังไม่ได้ใส่ LINE Channel access token / secret');
         if (s.pay_style !== 'static' && !s.promptpay_id) warn.push('เลือกหน้าชำระเงินแบบมี QR ยอดพอดี แต่ยังไม่ได้ใส่พร้อมเพย์ — ตอนนี้ระบบส่งรูปวิธีชำระเงินของร้านตามเดิมแทน');
-        if (s.slip_mode === 'api' && (!s.slip2go_url || !s.slip2go_secret_set)) warn.push('ยังไม่ได้ตั้งค่า Slip2Go API (เลือกแบบตรวจเองผ่าน API ไว้)');
-        if (s.slip_mode !== 'api' && !s.forward_webhook) warn.push('เลือกให้ Slip2Go ในแชทตรวจสลิป แต่ยังไม่ได้ใส่ "Webhook เดิม (ส่งต่อ)" — สลิปจะไม่ถูกส่งไปให้ Slip2Go (แอดมินต้องดูสลิปเอง)');
         const waiting = RENEW.renewals.filter(r => r.slip_sent).length;
         if (waiting) warn.unshift(`มีสลิปรอยืนยัน ${waiting} รายการ (ดูกรอบสีฟ้าในรายการ)`);
         if (!RENEW.packages.length) warn.push('ยังไม่มีแพ็กเกจ — เพิ่มแพ็กเกจก่อนเพิ่มลูกค้า');
@@ -371,7 +345,6 @@
         // ตั้งค่า
         document.getElementById('rsTokenSet').innerText = s.line_token_set ? '✓ ตั้งแล้ว' : '';
         document.getElementById('rsSecretSet').innerText = s.line_secret_set ? '✓ ตั้งแล้ว' : '';
-        document.getElementById('rsSlipSet').innerText = s.slip2go_secret_set ? '✓ ตั้งแล้ว' : '';
         const set = (id, v) => { const el = document.getElementById(id); if (document.activeElement !== el) el.value = v; };
         set('rsCardStyle', s.card_style || 'image'); set('rsPayBefore', s.pay_before_days);
         document.getElementById('renewCardResetBtn').classList.toggle('hidden', !s.card_custom);
@@ -380,9 +353,8 @@
         document.getElementById('rsPayText').checked = s.pay_text !== false;
         document.getElementById('renewPayResetBtn').classList.toggle('hidden', !s.pay_custom);
         renderRenewPayPreview();
-        set('rsOaId', s.line_oa_id); set('rsSlipMode', s.slip_mode || 'chat');
-        document.getElementById('rsApiBox').classList.toggle('opacity-50', (s.slip_mode || 'chat') !== 'api'); set('rsForward', s.forward_webhook || ''); set('rsPromptpay', s.promptpay_id); set('rsPayName', s.pay_name);
-        set('rsAmountExtra', s.amount_extra); set('rsSlipUrl', s.slip2go_url); set('rsRecvType', s.receiver_type); set('rsRecvAcc', s.receiver_account);
+        set('rsOaId', s.line_oa_id);
+        set('rsForward', s.forward_webhook || ''); set('rsPromptpay', s.promptpay_id); set('rsPayName', s.pay_name);
         set('rsRemindTime', s.remind_time || '09:00'); set('rsRemind', s.remind_days); set('rsGrace', s.grace_days); set('rsLate', s.late_fee); set('rsRemoved', s.removed_fee); set('rsFamSize', s.fam_size);
         document.getElementById('renewWebhookUrl').innerText = s.webhook_url;
         document.getElementById('renewWebhookUrl2').innerText = s.webhook_url;
@@ -504,7 +476,8 @@
                     ${r.note ? `<span class="text-gray-400 break-all">· ${rEsc(r.note)}</span>` : ''}
                 </div>
                 ${r.slip_sent ? `<div class="flex flex-wrap items-center gap-1.5 bg-sky-50 border border-sky-200 rounded-xl p-2 text-[11px] text-sky-800">
-                    <span class="font-bold"><i class="fa-solid fa-receipt mr-1"></i>ลูกค้าส่งสลิปแล้ว ${rBaht(r.pending)} — ดูผลตรวจของ Slip2Go ในแชท</span>
+                    <span class="font-bold"><i class="fa-solid fa-receipt mr-1"></i>ลูกค้าส่งสลิปแล้ว ${rBaht(r.pending)} — ตรวจสลิปแล้วกดยืนยัน</span>
+                    ${r.slip_img ? `<a href="admin.php?action=renew_slip_img&pay_id=${encodeURIComponent(r.pay_id)}" target="_blank" class="font-bold px-2 py-1 rounded-lg border border-sky-300 bg-white text-sky-700"><i class="fa-regular fa-image mr-0.5"></i>ดูสลิป</a>` : '<span class="text-[10px] text-sky-600">(ดูสลิปในแชท LINE)</span>'}
                     <button type="button" onclick='if(confirm("ยืนยันว่าสลิปผ่าน แล้วต่ออายุให้ลูกค้า?"))renewAction("renew_confirm_pay",{pay_id:${JSON.stringify(r.pay_id)}})' class="font-bold px-2 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"><i class="fa-solid fa-check mr-0.5"></i>ยืนยันรับเงิน</button>
                     <button type="button" onclick='if(confirm("สลิปไม่ผ่าน? ระบบจะแจ้งลูกค้าทาง LINE ให้ทักแอดมิน"))renewAction("renew_reject_pay",{pay_id:${JSON.stringify(r.pay_id)},notify:"1"})' class="font-bold px-2 py-1 rounded-lg border border-rose-200 bg-white text-rose-600">สลิปไม่ผ่าน</button>
                 </div>` : ''}
@@ -580,7 +553,7 @@
             </div>
             <div class="space-y-1 text-[11px] text-gray-600">
                 <p class="font-bold text-gray-700">③ ลูกค้าส่งสลิปในแชท</p>
-                <p>${s.slip_mode === 'api' ? 'ระบบตรวจสลิปผ่าน Slip2Go API แล้วต่ออายุ + แจ้งลูกค้าให้เอง' : 'Slip2Go ในแชทตรวจสลิป → แอดมินกด "ยืนยันรับเงิน" ในหน้านี้ → ระบบต่ออายุ + แจ้งลูกค้า'}</p>
+                <p>ระบบตอบลูกค้า "รอแอดมินอนุมัติ" → แอดมินกด "ดูสลิป" ในหน้านี้ ตรวจแล้วกด "ยืนยันรับเงิน" → ระบบต่ออายุ + แจ้งลูกค้า</p>
             </div>`;
         document.getElementById('renewInfoModal').classList.remove('hidden');
     }
@@ -828,11 +801,10 @@
     async function saveRenewSettings() {
         const v = (id) => document.getElementById(id).value.trim();
         const j = await renewAction('renew_settings_save', {
-            pay_style: v('rsPayStyle'), pay_text: document.getElementById('rsPayText').checked ? '1' : '0', card_style: v('rsCardStyle'), pay_before_days: v('rsPayBefore'), slip_mode: v('rsSlipMode'), line_token: v('rsLineToken'), line_secret: v('rsLineSecret'), line_oa_id: v('rsOaId'), forward_webhook: v('rsForward'),
-            promptpay_id: v('rsPromptpay'), pay_name: v('rsPayName'), slip2go_url: v('rsSlipUrl'), slip2go_secret: v('rsSlipSecret'),
-            receiver_type: v('rsRecvType'), receiver_account: v('rsRecvAcc'), amount_extra: v('rsAmountExtra'),
+            pay_style: v('rsPayStyle'), pay_text: document.getElementById('rsPayText').checked ? '1' : '0', card_style: v('rsCardStyle'), pay_before_days: v('rsPayBefore'), line_token: v('rsLineToken'), line_secret: v('rsLineSecret'), line_oa_id: v('rsOaId'), forward_webhook: v('rsForward'),
+            promptpay_id: v('rsPromptpay'), pay_name: v('rsPayName'),
             remind_time: v('rsRemindTime') || '09:00', remind_days: v('rsRemind'), grace_days: v('rsGrace'), late_fee: v('rsLate'), removed_fee: v('rsRemoved'), fam_size: v('rsFamSize'),
         });
-        if (j) ['rsLineToken', 'rsLineSecret', 'rsSlipSecret'].forEach(id => document.getElementById(id).value = '');
+        if (j) ['rsLineToken', 'rsLineSecret'].forEach(id => document.getElementById(id).value = '');
     }
 </script>

@@ -50,6 +50,7 @@ try {
                 'pending' => isset($pending[$r['id']]) ? (float)$pending[$r['id']]['amount'] : null,
                 'pay_id' => $pending[$r['id']]['id'] ?? null,
                 'slip_sent' => ($pending[$r['id']]['status'] ?? '') === 'slip',
+                'slip_img' => isset($pending[$r['id']]) && renew_file('slip_' . $pending[$r['id']]['id']) ? 1 : 0,
             ];
             if ($r['status'] === 'active' && empty($r['removed_at']) && $r['shop_email'] !== '') {
                 $k = strtolower($r['shop_email']);
@@ -205,7 +206,17 @@ try {
         }
     }
 
-    // ---------- ยืนยัน / ปฏิเสธ สลิปที่ลูกค้าส่ง (โหมดให้ Slip2Go ในแชทตรวจ) ----------
+    // ---------- รูปสลิปที่ลูกค้าส่ง (แอดมินดูเท่านั้น) ----------
+    if ($action === 'renew_slip_img') {
+        $c = renew_file('slip_' . (string)($_GET['pay_id'] ?? ''));
+        if (!$c) { http_response_code(404); header('Content-Type: text/plain; charset=utf-8'); echo 'ไม่มีรูปสลิป (ลูกค้าอาจส่งก่อนอัปเดตระบบ — ดูในแชท LINE แทน)'; exit; }
+        header('Content-Type: ' . $c['mime']);
+        header('Cache-Control: private, max-age=300');
+        echo base64_decode($c['data']);
+        exit;
+    }
+
+    // ---------- ยืนยัน / ปฏิเสธ สลิปที่ลูกค้าส่ง (แอดมินตรวจเอง) ----------
     if ($action === 'renew_confirm_pay') {
         $res = renew_confirm_payment(renew_post('pay_id'));
         if (!$res['ok']) renew_fail($res['error']);
@@ -332,7 +343,7 @@ try {
 
     // ---------- ตั้งค่า ----------
     if ($action === 'renew_settings_save') {
-        if (isset($_POST['slip_mode'])) $_POST['slip_mode'] = renew_post('slip_mode') === 'api' ? 'api' : 'chat';
+        $_POST['slip_mode'] = 'chat'; // ตรวจสลิปโดยแอดมินเท่านั้น
         if (isset($_POST['card_style'])) $_POST['card_style'] = renew_post('card_style') === 'basic' ? 'basic' : 'image';
         if (isset($_POST['pay_text'])) $_POST['pay_text'] = renew_post('pay_text') === '0' ? '0' : '1';
         if (isset($_POST['pay_style'])) $_POST['pay_style'] = in_array(renew_post('pay_style'), ['static', 'image', 'qr'], true) ? renew_post('pay_style') : 'static';

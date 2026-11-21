@@ -49,6 +49,14 @@ if ($logged_in) {
     $_SESSION['admin_logged_in'] = true;
 }
 
+// รูปสลิปค่าต่อเมลที่ลูกค้าส่ง (เปิดดูในแท็บใหม่ · เฉพาะแอดมินที่ล็อกอินแล้ว)
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'renew_slip_img') {
+    if (!$logged_in) { http_response_code(403); exit('forbidden'); }
+    $action = 'renew_slip_img';
+    require __DIR__ . '/renew_admin_actions.php';
+    exit;
+}
+
 // ==========================================
 // ส่วนประมวลผลคำขอร้องแบบ AJAX (POST Asynchronous)
 // ==========================================
